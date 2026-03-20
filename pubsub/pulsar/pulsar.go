@@ -204,10 +204,20 @@ func parsePulsarMetadata(meta pubsub.Metadata) (*pulsarMetadata, error) {
 			if codecErr != nil {
 				return nil, fmt.Errorf("failed to parse avro schema for topic %q: %w", topic, codecErr)
 			}
+			ceSchemaJSON, ceErr := wrapInCloudEventsAvroSchema(v)
+			if ceErr != nil {
+				return nil, fmt.Errorf("failed to generate CloudEvents envelope schema for topic %q: %w", topic, ceErr)
+			}
+			ceCodec, ceCodecErr := goavro.NewCodecForStandardJSONFull(ceSchemaJSON)
+			if ceCodecErr != nil {
+				return nil, fmt.Errorf("failed to parse CloudEvents envelope schema for topic %q: %w", topic, ceCodecErr)
+			}
 			m.internalTopicSchemas[topic] = schemaMetadata{
 				protocol: avroProtocol,
 				value:    v,
 				codec:    codec,
+				ceValue:  ceSchemaJSON,
+				ceCodec:  ceCodec,
 			}
 		case strings.HasSuffix(k, topicProtoSchemaIdentifier):
 			topic := k[:len(k)-len(topicProtoSchemaIdentifier)]
@@ -330,7 +340,14 @@ func (p *Pulsar) Publish(ctx context.Context, req *pubsub.PublishRequest) error 
 		}
 
 		if hasSchema {
-			opts.Schema = getPulsarSchema(sm)
+			// Always register the CE envelope schema when available. The producer
+			// schema is topic-level and must not vary per message. Users who need
+			// rawPayload mode should use a separate topic.
+			if sm.ceValue != "" {
+				opts.Schema = pulsar.NewAvroSchema(sm.ceValue, nil)
+			} else {
+				opts.Schema = getPulsarSchema(sm)
+			}
 		}
 
 		if p.useProducerEncryption() {
@@ -398,10 +415,21 @@ func parsePublishMetadata(req *pubsub.PublishRequest, schema schemaMetadata) (
 
 		msg.Value = obj
 	case avroProtocol:
-		// Use the cached goavro codec (compiled once at init) to validate JSON
-		// against the Avro schema. NativeFromTextual parses JSON and validates it
-		// in one step — if the data doesn't conform, it returns an error.
-		native, _, nativeErr := schema.codec.NativeFromTextual(req.Data)
+		// Select the appropriate codec based on whether the payload is raw or
+		// wrapped in a CloudEvents envelope. When rawPayload=true, the data is the
+		// inner domain event; otherwise it's the full CloudEvents envelope.
+		isRaw, rawErr := metadata.IsRawPayload(req.Metadata)
+		if rawErr != nil {
+			return nil, fmt.Errorf("invalid rawPayload metadata: %w", rawErr)
+		}
+		if isRaw && schema.ceCodec != nil {
+			return nil, errors.New("rawPayload=true is not compatible with Avro schema topics using CloudEvents envelope; use a separate topic for raw payloads")
+		}
+		codec := schema.ceCodec
+		if schema.ceCodec == nil {
+			codec = schema.codec
+		}
+		native, _, nativeErr := codec.NativeFromTextual(req.Data)
 		if nativeErr != nil {
 			return nil, fmt.Errorf("avro schema validation failed: %w", nativeErr)
 		}
@@ -608,7 +636,12 @@ func (p *Pulsar) Subscribe(ctx context.Context, req pubsub.SubscribeRequest, han
 	}
 
 	if sm, ok := p.metadata.internalTopicSchemas[req.Topic]; ok {
-		options.Schema = getPulsarSchema(sm)
+		// Use CE envelope schema when available to match the producer registration.
+		if sm.ceValue != "" {
+			options.Schema = pulsar.NewAvroSchema(sm.ceValue, nil)
+		} else {
+			options.Schema = getPulsarSchema(sm)
+		}
 	}
 	consumer, err := p.client.Subscribe(options)
 	if err != nil {

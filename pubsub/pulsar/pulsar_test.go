@@ -32,8 +32,9 @@ import (
 	"github.com/dapr/kit/logger"
 )
 
-// newAvroSchemaMetadata creates a schemaMetadata with a pre-compiled goavro codec,
-// matching the production path where codecs are compiled once at init.
+// newAvroSchemaMetadata creates a schemaMetadata with a pre-compiled goavro codec
+// for inner schema validation only (no CE envelope). Use this for tests that pass
+// raw domain payloads directly (simulating rawPayload=true mode).
 func newAvroSchemaMetadata(t *testing.T, avroSchemaJSON string) schemaMetadata {
 	t.Helper()
 	codec, err := goavro.NewCodecForStandardJSONFull(avroSchemaJSON)
@@ -42,6 +43,28 @@ func newAvroSchemaMetadata(t *testing.T, avroSchemaJSON string) schemaMetadata {
 		protocol: avroProtocol,
 		value:    avroSchemaJSON,
 		codec:    codec,
+	}
+}
+
+// newAvroSchemaMetadataWithCE creates a schemaMetadata with pre-compiled goavro codecs
+// for both the inner schema and the CloudEvents envelope schema, matching the
+// production path where codecs are compiled once at init.
+func newAvroSchemaMetadataWithCE(t *testing.T, avroSchemaJSON string) schemaMetadata {
+	t.Helper()
+	codec, err := goavro.NewCodecForStandardJSONFull(avroSchemaJSON)
+	require.NoError(t, err, "failed to compile test avro schema")
+
+	ceSchemaJSON, err := wrapInCloudEventsAvroSchema(avroSchemaJSON)
+	require.NoError(t, err, "failed to generate CE envelope schema")
+	ceCodec, err := goavro.NewCodecForStandardJSONFull(ceSchemaJSON)
+	require.NoError(t, err, "failed to compile CE envelope schema")
+
+	return schemaMetadata{
+		protocol: avroProtocol,
+		value:    avroSchemaJSON,
+		codec:    codec,
+		ceValue:  ceSchemaJSON,
+		ceCodec:  ceCodec,
 	}
 }
 
@@ -1129,6 +1152,134 @@ func TestParsePublishMetadataAvroSchemaInvalidSchemaDefinition(t *testing.T) {
 	_, err := parsePulsarMetadata(m)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to parse avro schema")
+}
+
+func TestParsePublishMetadataAvroCloudEventsEnvelope(t *testing.T) {
+	avroSchemaJSON := `{
+		"type": "record",
+		"name": "OrderEvent",
+		"namespace": "com.example",
+		"fields": [
+			{"name": "orderId", "type": "string"},
+			{"name": "amount", "type": "double"}
+		]
+	}`
+
+	sm := newAvroSchemaMetadataWithCE(t, avroSchemaJSON)
+
+	t.Run("valid CloudEvents envelope", func(t *testing.T) {
+		cePayload := `{
+			"id": "abc-123",
+			"source": "Dapr",
+			"specversion": "1.0",
+			"type": "com.dapr.event.sent",
+			"datacontenttype": "application/json",
+			"subject": null,
+			"time": "2026-03-20T10:00:00Z",
+			"topic": "orders",
+			"pubsubname": "mypubsub",
+			"traceid": null,
+			"traceparent": null,
+			"tracestate": null,
+			"expiration": null,
+			"data": {"orderId": "order-1", "amount": 99.99},
+			"data_base64": null
+		}`
+		req := &pubsub.PublishRequest{
+			Data: []byte(cePayload),
+		}
+		msg, err := parsePublishMetadata(req, sm)
+		require.NoError(t, err)
+		assert.NotNil(t, msg)
+		assert.NotNil(t, msg.Value)
+	})
+
+	t.Run("CE envelope with null data", func(t *testing.T) {
+		cePayload := `{
+			"id": "abc-123",
+			"source": "Dapr",
+			"specversion": "1.0",
+			"type": "com.dapr.event.sent",
+			"datacontenttype": null,
+			"subject": null,
+			"time": null,
+			"topic": null,
+			"pubsubname": null,
+			"traceid": null,
+			"traceparent": null,
+			"tracestate": null,
+			"expiration": null,
+			"data": null,
+			"data_base64": null
+		}`
+		req := &pubsub.PublishRequest{
+			Data: []byte(cePayload),
+		}
+		msg, err := parsePublishMetadata(req, sm)
+		require.NoError(t, err)
+		assert.NotNil(t, msg)
+	})
+
+	t.Run("CE envelope missing required CE field fails", func(t *testing.T) {
+		// Missing "source" field
+		cePayload := `{
+			"id": "abc-123",
+			"specversion": "1.0",
+			"type": "com.dapr.event.sent",
+			"datacontenttype": null,
+			"subject": null,
+			"time": null,
+			"topic": null,
+			"pubsubname": null,
+			"traceid": null,
+			"traceparent": null,
+			"tracestate": null,
+			"expiration": null,
+			"data": null,
+			"data_base64": null
+		}`
+		req := &pubsub.PublishRequest{
+			Data: []byte(cePayload),
+		}
+		_, err := parsePublishMetadata(req, sm)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "avro schema validation failed")
+	})
+
+	t.Run("rawPayload rejected on CE schema topic", func(t *testing.T) {
+		req := &pubsub.PublishRequest{
+			Data:     []byte(`{"orderId": "order-1", "amount": 99.99}`),
+			Metadata: map[string]string{"rawPayload": "true"},
+		}
+		_, err := parsePublishMetadata(req, sm)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "rawPayload=true is not compatible")
+	})
+}
+
+func TestParsePulsarMetadataCECodecCompiled(t *testing.T) {
+	avroSchemaJSON := `{
+		"type": "record",
+		"name": "TestEvent",
+		"fields": [
+			{"name": "id", "type": "int"}
+		]
+	}`
+
+	m := pubsub.Metadata{}
+	m.Properties = map[string]string{
+		"host":                                "a",
+		"mytopic" + topicAvroSchemaIdentifier: avroSchemaJSON,
+	}
+
+	meta, err := parsePulsarMetadata(m)
+	require.NoError(t, err)
+
+	sm, ok := meta.internalTopicSchemas["mytopic"]
+	require.True(t, ok)
+	assert.NotNil(t, sm.codec, "inner codec should be compiled")
+	assert.NotNil(t, sm.ceCodec, "CE envelope codec should be compiled")
+	assert.NotEmpty(t, sm.ceValue, "CE envelope schema JSON should be set")
 }
 
 func TestMissingHost(t *testing.T) {
