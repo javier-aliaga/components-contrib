@@ -51,7 +51,7 @@ type avroNullableField struct {
 func wrapInCloudEventsAvroSchema(innerSchemaJSON string) (string, error) {
 	var innerSchema interface{}
 	if err := json.Unmarshal([]byte(innerSchemaJSON), &innerSchema); err != nil {
-		return "", fmt.Errorf("failed to parse inner Avro schema: %w", err)
+		return "", fmt.Errorf("failed to parse inner schema: %w", err)
 	}
 
 	nullStr := [2]any{"null", "string"}

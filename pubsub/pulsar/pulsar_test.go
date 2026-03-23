@@ -378,6 +378,9 @@ const (
 	testAvroSchema1 = `{"type":"record","name":"S1","fields":[{"name":"id","type":"int"}]}`
 	testAvroSchema2 = `{"type":"record","name":"S2","fields":[{"name":"id","type":"int"}]}`
 	testAvroSchema3 = `{"type":"record","name":"S3","fields":[{"name":"id","type":"int"}]}`
+
+	testJSONSchema1 = `{"type":"record","name":"J1","fields":[{"name":"name","type":"string"}]}`
+	testJSONSchema2 = `{"type":"record","name":"J2","fields":[{"name":"age","type":"int"}]}`
 )
 
 func TestParsePulsarSchemaMetadata(t *testing.T) {
@@ -385,16 +388,20 @@ func TestParsePulsarSchemaMetadata(t *testing.T) {
 		m := pubsub.Metadata{}
 		m.Properties = map[string]string{
 			"host":                         "a",
-			"obiwan.jsonschema":            "1",
-			"kenobi.jsonschema.jsonschema": "2",
+			"obiwan.jsonschema":            testJSONSchema1,
+			"kenobi.jsonschema.jsonschema": testJSONSchema2,
 		}
 		meta, err := parsePulsarMetadata(m)
 
 		require.NoError(t, err)
 		assert.Equal(t, "a", meta.Host)
 		assert.Len(t, meta.internalTopicSchemas, 2)
-		assert.Equal(t, "1", meta.internalTopicSchemas["obiwan"].value)
-		assert.Equal(t, "2", meta.internalTopicSchemas["kenobi.jsonschema"].value)
+		assert.JSONEq(t, testJSONSchema1, meta.internalTopicSchemas["obiwan"].value)
+		assert.NotNil(t, meta.internalTopicSchemas["obiwan"].codec)
+		assert.NotEmpty(t, meta.internalTopicSchemas["obiwan"].ceValue)
+		assert.NotNil(t, meta.internalTopicSchemas["obiwan"].ceCodec)
+		assert.JSONEq(t, testJSONSchema2, meta.internalTopicSchemas["kenobi.jsonschema"].value)
+		assert.NotNil(t, meta.internalTopicSchemas["kenobi.jsonschema"].codec)
 	})
 
 	t.Run("test avro", func(t *testing.T) {
@@ -436,7 +443,7 @@ func TestParsePulsarSchemaMetadata(t *testing.T) {
 		m.Properties = map[string]string{
 			"host":              "a",
 			"obiwan.avroschema": testAvroSchema1,
-			"kenobi.jsonschema": "2",
+			"kenobi.jsonschema": testJSONSchema1,
 		}
 		meta, err := parsePulsarMetadata(m)
 
@@ -444,7 +451,8 @@ func TestParsePulsarSchemaMetadata(t *testing.T) {
 		assert.Equal(t, "a", meta.Host)
 		assert.Len(t, meta.internalTopicSchemas, 2)
 		assert.JSONEq(t, testAvroSchema1, meta.internalTopicSchemas["obiwan"].value)
-		assert.Equal(t, "2", meta.internalTopicSchemas["kenobi"].value)
+		assert.JSONEq(t, testJSONSchema1, meta.internalTopicSchemas["kenobi"].value)
+		assert.NotNil(t, meta.internalTopicSchemas["kenobi"].codec)
 		assert.Equal(t, avroProtocol, meta.internalTopicSchemas["obiwan"].protocol)
 		assert.Equal(t, jsonProtocol, meta.internalTopicSchemas["kenobi"].protocol) //nolint:testifylint
 	})
@@ -454,7 +462,7 @@ func TestParsePulsarSchemaMetadata(t *testing.T) {
 		m.Properties = map[string]string{
 			"host":              "a",
 			"obiwan.avroschema": testAvroSchema1,
-			"kenobi.jsonschema": "2",
+			"kenobi.jsonschema": testJSONSchema1,
 			"darth.protoschema": "3",
 		}
 		meta, err := parsePulsarMetadata(m)
@@ -463,11 +471,23 @@ func TestParsePulsarSchemaMetadata(t *testing.T) {
 		assert.Equal(t, "a", meta.Host)
 		assert.Len(t, meta.internalTopicSchemas, 3)
 		assert.JSONEq(t, testAvroSchema1, meta.internalTopicSchemas["obiwan"].value)
-		assert.Equal(t, "2", meta.internalTopicSchemas["kenobi"].value)
+		assert.JSONEq(t, testJSONSchema1, meta.internalTopicSchemas["kenobi"].value)
+		assert.NotNil(t, meta.internalTopicSchemas["kenobi"].codec)
 		assert.Equal(t, "3", meta.internalTopicSchemas["darth"].value)
 		assert.Equal(t, avroProtocol, meta.internalTopicSchemas["obiwan"].protocol)
 		assert.Equal(t, jsonProtocol, meta.internalTopicSchemas["kenobi"].protocol) //nolint:testifylint
 		assert.Equal(t, protoProtocol, meta.internalTopicSchemas["darth"].protocol)
+	})
+
+	t.Run("test json invalid schema rejected at init", func(t *testing.T) {
+		m := pubsub.Metadata{}
+		m.Properties = map[string]string{
+			"host":              "a",
+			"obiwan.jsonschema": `{"type":"bogus"}`,
+		}
+		_, err := parsePulsarMetadata(m)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to parse json schema")
 	})
 
 	t.Run("test funky edge case", func(t *testing.T) {
@@ -1155,6 +1175,134 @@ func TestParsePublishMetadataAvroSchemaInvalidSchemaDefinition(t *testing.T) {
 	_, err := parsePulsarMetadata(m)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to parse avro schema")
+}
+
+func TestParsePublishMetadataJSONSchemaValidation(t *testing.T) {
+	jsonSchemaJSON := `{
+		"type": "record",
+		"name": "User",
+		"namespace": "com.example",
+		"fields": [
+			{"name": "name", "type": "string"},
+			{"name": "age", "type": "int"}
+		]
+	}`
+	codec, err := goavro.NewCodecForStandardJSONFull(jsonSchemaJSON)
+	require.NoError(t, err)
+
+	sm := schemaMetadata{
+		protocol: jsonProtocol,
+		value:    jsonSchemaJSON,
+		codec:    codec,
+	}
+
+	t.Run("valid payload passes validation", func(t *testing.T) {
+		req := &pubsub.PublishRequest{
+			Data: []byte(`{"name":"Alice","age":30}`),
+		}
+		msg, err := parsePublishMetadata(req, sm)
+		require.NoError(t, err)
+		assert.NotNil(t, msg.Value)
+	})
+
+	t.Run("invalid payload rejected", func(t *testing.T) {
+		req := &pubsub.PublishRequest{
+			Data: []byte(`{"name":"Alice","age":"not_a_number"}`),
+		}
+		_, err := parsePublishMetadata(req, sm)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "json schema validation failed")
+	})
+
+	t.Run("missing required field rejected", func(t *testing.T) {
+		req := &pubsub.PublishRequest{
+			Data: []byte(`{"name":"Alice"}`),
+		}
+		_, err := parsePublishMetadata(req, sm)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "json schema validation failed")
+	})
+
+	t.Run("not valid json rejected", func(t *testing.T) {
+		req := &pubsub.PublishRequest{
+			Data: []byte(`{broken json`),
+		}
+		_, err := parsePublishMetadata(req, sm)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "json schema validation failed")
+	})
+
+	t.Run("rawPayload true without CE codec uses inner codec", func(t *testing.T) {
+		req := &pubsub.PublishRequest{
+			Data:     []byte(`{"name":"Alice","age":30}`),
+			Metadata: map[string]string{"rawPayload": "true"},
+		}
+		msg, err := parsePublishMetadata(req, sm)
+		require.NoError(t, err)
+		assert.NotNil(t, msg.Value)
+	})
+}
+
+func TestParsePublishMetadataJSONSchemaCloudEventsEnvelope(t *testing.T) {
+	jsonSchemaJSON := `{
+		"type": "record",
+		"name": "OrderEvent",
+		"namespace": "com.example",
+		"fields": [
+			{"name": "orderId", "type": "string"},
+			{"name": "amount", "type": "double"}
+		]
+	}`
+
+	codec, err := goavro.NewCodecForStandardJSONFull(jsonSchemaJSON)
+	require.NoError(t, err)
+	ceSchemaJSON, err := wrapInCloudEventsAvroSchema(jsonSchemaJSON)
+	require.NoError(t, err)
+	ceCodec, err := goavro.NewCodecForStandardJSONFull(ceSchemaJSON)
+	require.NoError(t, err)
+
+	sm := schemaMetadata{
+		protocol: jsonProtocol,
+		value:    jsonSchemaJSON,
+		codec:    codec,
+		ceValue:  ceSchemaJSON,
+		ceCodec:  ceCodec,
+	}
+
+	t.Run("valid CE envelope passes", func(t *testing.T) {
+		req := &pubsub.PublishRequest{
+			Data: []byte(`{
+				"id": "evt-1",
+				"source": "/test",
+				"specversion": "1.0",
+				"type": "com.example.order",
+				"datacontenttype": "application/json",
+				"subject": null,
+				"time": null,
+				"topic": null,
+				"pubsubname": null,
+				"traceid": null,
+				"traceparent": null,
+				"tracestate": null,
+				"expiration": null,
+				"data": {"orderId": "123", "amount": 9.99},
+				"data_base64": null
+			}`),
+		}
+		msg, err := parsePublishMetadata(req, sm)
+		require.NoError(t, err)
+		assert.NotNil(t, msg.Value)
+	})
+
+	t.Run("rawPayload rejected with CE envelope", func(t *testing.T) {
+		req := &pubsub.PublishRequest{
+			Data:     []byte(`{"orderId": "123", "amount": 9.99}`),
+			Metadata: map[string]string{"rawPayload": "true"},
+		}
+		_, err := parsePublishMetadata(req, sm)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "rawPayload=true is not compatible with JSON schema topics")
+	})
 }
 
 func TestParsePublishMetadataAvroCloudEventsEnvelope(t *testing.T) {

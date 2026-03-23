@@ -294,7 +294,7 @@ func TestWrapInCloudEventsAvroSchema_InvalidInput(t *testing.T) {
 	t.Run("malformed JSON", func(t *testing.T) {
 		_, err := wrapInCloudEventsAvroSchema(`{not valid json}`)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to parse inner Avro schema")
+		assert.Contains(t, err.Error(), "failed to parse inner schema")
 	})
 
 	t.Run("empty string", func(t *testing.T) {

@@ -15,7 +15,6 @@ package pulsar
 
 import (
 	"context"
-	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -209,9 +208,24 @@ func parsePulsarMetadata(meta pubsub.Metadata) (*pulsarMetadata, error) {
 		switch {
 		case strings.HasSuffix(k, topicJSONSchemaIdentifier):
 			topic := k[:len(k)-len(topicJSONSchemaIdentifier)]
+			codec, codecErr := goavro.NewCodecForStandardJSONFull(v)
+			if codecErr != nil {
+				return nil, fmt.Errorf("failed to parse json schema for topic %q: %w", topic, codecErr)
+			}
+			ceSchemaJSON, ceErr := wrapInCloudEventsAvroSchema(v)
+			if ceErr != nil {
+				return nil, fmt.Errorf("failed to generate CloudEvents envelope schema for topic %q: %w", topic, ceErr)
+			}
+			ceCodec, ceCodecErr := goavro.NewCodecForStandardJSONFull(ceSchemaJSON)
+			if ceCodecErr != nil {
+				return nil, fmt.Errorf("failed to parse CloudEvents envelope schema for topic %q: %w", topic, ceCodecErr)
+			}
 			m.internalTopicSchemas[topic] = schemaMetadata{
 				protocol: jsonProtocol,
 				value:    v,
+				codec:    codec,
+				ceValue:  ceSchemaJSON,
+				ceCodec:  ceCodec,
 			}
 		case strings.HasSuffix(k, topicAvroSchemaIdentifier):
 			topic := k[:len(k)-len(topicAvroSchemaIdentifier)]
@@ -403,7 +417,12 @@ func (p *Pulsar) Publish(ctx context.Context, req *pubsub.PublishRequest) error 
 // otherwise it falls back to the inner schema.
 func getRegistrationSchema(sm schemaMetadata) pulsar.Schema {
 	if sm.ceValue != "" {
-		return pulsar.NewAvroSchema(sm.ceValue, nil)
+		switch sm.protocol {
+		case jsonProtocol:
+			return pulsar.NewJSONSchema(sm.ceValue, nil)
+		default:
+			return pulsar.NewAvroSchema(sm.ceValue, nil)
+		}
 	}
 	return getPulsarSchema(sm)
 }
@@ -431,13 +450,23 @@ func parsePublishMetadata(req *pubsub.PublishRequest, schema schemaMetadata) (
 	case "":
 		msg.Payload = req.Data
 	case jsonProtocol:
-		var obj interface{}
-		err = json.Unmarshal(req.Data, &obj)
-		if err != nil {
-			return nil, err
+		isRaw, rawErr := metadata.IsRawPayload(req.Metadata)
+		if rawErr != nil {
+			return nil, fmt.Errorf("invalid rawPayload metadata: %w", rawErr)
+		}
+		if isRaw && schema.ceCodec != nil {
+			return nil, errors.New("rawPayload=true is not compatible with JSON schema topics using CloudEvents envelope; use a separate topic for raw payloads")
+		}
+		codec := schema.ceCodec
+		if schema.ceCodec == nil {
+			codec = schema.codec
+		}
+		native, _, nativeErr := codec.NativeFromTextual(req.Data)
+		if nativeErr != nil {
+			return nil, fmt.Errorf("json schema validation failed: %w", nativeErr)
 		}
 
-		msg.Value = obj
+		msg.Value = native
 	case avroProtocol:
 		// Select the appropriate codec based on whether the payload is raw or
 		// wrapped in a CloudEvents envelope. When rawPayload=true, the data is the
