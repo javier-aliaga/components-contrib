@@ -193,6 +193,15 @@ metadata:
           {"name": "Name","type": "string"}
         ]
       }
+  - name: "<topic-name>.rawPayload"
+    type: bool
+    description: |
+      When set to "true", disables CloudEvents envelope wrapping for this Avro schema topic.
+      The producer registers the inner Avro schema directly with the Pulsar Schema Registry
+      instead of the generated CloudEvents envelope schema. Use this for topics that exclusively
+      receive raw domain payloads (with per-message rawPayload=true).
+    default: '"false"'
+    example: '"true"'
   - name: "<topic-name>.jsonschema"
     type: string
     description: |
