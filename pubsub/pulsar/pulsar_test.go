@@ -1282,6 +1282,74 @@ func TestParsePulsarMetadataCECodecCompiled(t *testing.T) {
 	assert.NotEmpty(t, sm.ceValue, "CE envelope schema JSON should be set")
 }
 
+func TestParsePulsarMetadataRawPayloadSkipsCE(t *testing.T) {
+	avroSchemaJSON := `{
+		"type": "record",
+		"name": "TestEvent",
+		"fields": [
+			{"name": "id", "type": "int"}
+		]
+	}`
+
+	m := pubsub.Metadata{}
+	m.Properties = map[string]string{
+		"host":                                 "a",
+		"mytopic" + topicAvroSchemaIdentifier:  avroSchemaJSON,
+		"mytopic" + topicRawPayloadIdentifier:  "true",
+	}
+
+	meta, err := parsePulsarMetadata(m)
+	require.NoError(t, err)
+
+	sm, ok := meta.internalTopicSchemas["mytopic"]
+	require.True(t, ok)
+	assert.NotNil(t, sm.codec, "inner codec should be compiled")
+	assert.Nil(t, sm.ceCodec, "CE envelope codec should NOT be set for rawPayload topics")
+	assert.Empty(t, sm.ceValue, "CE envelope schema JSON should NOT be set for rawPayload topics")
+}
+
+func TestParsePublishMetadataAvroRawPayloadTopic(t *testing.T) {
+	avroSchemaJSON := `{
+		"type": "record",
+		"name": "OrderEvent",
+		"namespace": "com.example",
+		"fields": [
+			{"name": "orderId", "type": "string"},
+			{"name": "amount", "type": "double"}
+		]
+	}`
+
+	// Build schema metadata without CE wrapping (simulates rawPayload topic).
+	codec, err := goavro.NewCodecForStandardJSONFull(avroSchemaJSON)
+	require.NoError(t, err)
+	sm := schemaMetadata{
+		protocol: avroProtocol,
+		value:    avroSchemaJSON,
+		codec:    codec,
+	}
+
+	t.Run("rawPayload succeeds with inner schema", func(t *testing.T) {
+		req := &pubsub.PublishRequest{
+			Data:     []byte(`{"orderId": "order-1", "amount": 99.99}`),
+			Metadata: map[string]string{"rawPayload": "true"},
+		}
+		msg, err := parsePublishMetadata(req, sm)
+		require.NoError(t, err)
+		assert.NotNil(t, msg)
+		assert.NotNil(t, msg.Value)
+	})
+
+	t.Run("non-raw also succeeds with inner schema when no CE", func(t *testing.T) {
+		req := &pubsub.PublishRequest{
+			Data: []byte(`{"orderId": "order-1", "amount": 99.99}`),
+		}
+		msg, err := parsePublishMetadata(req, sm)
+		require.NoError(t, err)
+		assert.NotNil(t, msg)
+		assert.NotNil(t, msg.Value)
+	})
+}
+
 func TestMissingHost(t *testing.T) {
 	m := pubsub.Metadata{}
 	m.Properties = map[string]string{"host": ""}

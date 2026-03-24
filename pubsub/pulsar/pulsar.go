@@ -66,9 +66,10 @@ const (
 	topicFormat                = "%s://%s/%s/%s"
 	persistentStr              = "persistent"
 	nonPersistentStr           = "non-persistent"
-	topicJSONSchemaIdentifier  = ".jsonschema"
-	topicAvroSchemaIdentifier  = ".avroschema"
-	topicProtoSchemaIdentifier = ".protoschema"
+	topicJSONSchemaIdentifier   = ".jsonschema"
+	topicAvroSchemaIdentifier   = ".avroschema"
+	topicProtoSchemaIdentifier  = ".protoschema"
+	topicRawPayloadIdentifier   = ".rawPayload"
 
 	// defaultBatchingMaxPublishDelay init default for maximum delay to batch messages.
 	defaultBatchingMaxPublishDelay = 10 * time.Millisecond
@@ -190,6 +191,15 @@ func parsePulsarMetadata(meta pubsub.Metadata) (*pulsarMetadata, error) {
 		return nil, errors.New("invalid compression level. Accepted values are `default`, `faster` and `better`")
 	}
 
+	// First pass: collect per-topic rawPayload flags.
+	rawPayloadTopics := make(map[string]bool)
+	for k, v := range meta.Properties {
+		if strings.HasSuffix(k, topicRawPayloadIdentifier) {
+			topic := k[:len(k)-len(topicRawPayloadIdentifier)]
+			rawPayloadTopics[topic] = strings.EqualFold(v, "true")
+		}
+	}
+
 	for k, v := range meta.Properties {
 		switch {
 		case strings.HasSuffix(k, topicJSONSchemaIdentifier):
@@ -204,21 +214,26 @@ func parsePulsarMetadata(meta pubsub.Metadata) (*pulsarMetadata, error) {
 			if codecErr != nil {
 				return nil, fmt.Errorf("failed to parse avro schema for topic %q: %w", topic, codecErr)
 			}
-			ceSchemaJSON, ceErr := wrapInCloudEventsAvroSchema(v)
-			if ceErr != nil {
-				return nil, fmt.Errorf("failed to generate CloudEvents envelope schema for topic %q: %w", topic, ceErr)
-			}
-			ceCodec, ceCodecErr := goavro.NewCodecForStandardJSONFull(ceSchemaJSON)
-			if ceCodecErr != nil {
-				return nil, fmt.Errorf("failed to parse CloudEvents envelope schema for topic %q: %w", topic, ceCodecErr)
-			}
-			m.internalTopicSchemas[topic] = schemaMetadata{
+			sm := schemaMetadata{
 				protocol: avroProtocol,
 				value:    v,
 				codec:    codec,
-				ceValue:  ceSchemaJSON,
-				ceCodec:  ceCodec,
 			}
+			// Only wrap in CloudEvents envelope when the topic is not
+			// configured for raw payloads exclusively.
+			if !rawPayloadTopics[topic] {
+				ceSchemaJSON, ceErr := wrapInCloudEventsAvroSchema(v)
+				if ceErr != nil {
+					return nil, fmt.Errorf("failed to generate CloudEvents envelope schema for topic %q: %w", topic, ceErr)
+				}
+				ceCodec, ceCodecErr := goavro.NewCodecForStandardJSONFull(ceSchemaJSON)
+				if ceCodecErr != nil {
+					return nil, fmt.Errorf("failed to parse CloudEvents envelope schema for topic %q: %w", topic, ceCodecErr)
+				}
+				sm.ceValue = ceSchemaJSON
+				sm.ceCodec = ceCodec
+			}
+			m.internalTopicSchemas[topic] = sm
 		case strings.HasSuffix(k, topicProtoSchemaIdentifier):
 			topic := k[:len(k)-len(topicProtoSchemaIdentifier)]
 			m.internalTopicSchemas[topic] = schemaMetadata{
