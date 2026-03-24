@@ -422,11 +422,8 @@ func parsePublishMetadata(req *pubsub.PublishRequest, schema schemaMetadata) (
 		if rawErr != nil {
 			return nil, fmt.Errorf("invalid rawPayload metadata: %w", rawErr)
 		}
-		if isRaw && schema.ceCodec != nil {
-			return nil, errors.New("rawPayload=true is not compatible with Avro schema topics using CloudEvents envelope; use a separate topic for raw payloads")
-		}
 		codec := schema.ceCodec
-		if schema.ceCodec == nil {
+		if isRaw || schema.ceCodec == nil {
 			codec = schema.codec
 		}
 		native, _, nativeErr := codec.NativeFromTextual(req.Data)
