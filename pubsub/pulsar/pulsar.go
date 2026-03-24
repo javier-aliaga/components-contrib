@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -66,10 +67,10 @@ const (
 	topicFormat                = "%s://%s/%s/%s"
 	persistentStr              = "persistent"
 	nonPersistentStr           = "non-persistent"
-	topicJSONSchemaIdentifier   = ".jsonschema"
-	topicAvroSchemaIdentifier   = ".avroschema"
-	topicProtoSchemaIdentifier  = ".protoschema"
-	topicRawPayloadIdentifier   = ".rawPayload"
+	topicJSONSchemaIdentifier  = ".jsonschema"
+	topicAvroSchemaIdentifier  = ".avroschema"
+	topicProtoSchemaIdentifier = ".protoschema"
+	topicRawPayloadIdentifier  = ".rawPayload"
 
 	// defaultBatchingMaxPublishDelay init default for maximum delay to batch messages.
 	defaultBatchingMaxPublishDelay = 10 * time.Millisecond
@@ -196,7 +197,11 @@ func parsePulsarMetadata(meta pubsub.Metadata) (*pulsarMetadata, error) {
 	for k, v := range meta.Properties {
 		if strings.HasSuffix(k, topicRawPayloadIdentifier) {
 			topic := k[:len(k)-len(topicRawPayloadIdentifier)]
-			rawPayloadTopics[topic] = strings.EqualFold(v, "true")
+			parsed, parseErr := strconv.ParseBool(v)
+			if parseErr != nil {
+				return nil, fmt.Errorf("invalid value for %q: %w", k, parseErr)
+			}
+			rawPayloadTopics[topic] = parsed
 		}
 	}
 

@@ -1293,9 +1293,9 @@ func TestParsePulsarMetadataRawPayloadSkipsCE(t *testing.T) {
 
 	m := pubsub.Metadata{}
 	m.Properties = map[string]string{
-		"host":                                 "a",
-		"mytopic" + topicAvroSchemaIdentifier:  avroSchemaJSON,
-		"mytopic" + topicRawPayloadIdentifier:  "true",
+		"host":                                "a",
+		"mytopic" + topicAvroSchemaIdentifier: avroSchemaJSON,
+		"mytopic" + topicRawPayloadIdentifier: "true",
 	}
 
 	meta, err := parsePulsarMetadata(m)
@@ -1306,6 +1306,19 @@ func TestParsePulsarMetadataRawPayloadSkipsCE(t *testing.T) {
 	assert.NotNil(t, sm.codec, "inner codec should be compiled")
 	assert.Nil(t, sm.ceCodec, "CE envelope codec should NOT be set for rawPayload topics")
 	assert.Empty(t, sm.ceValue, "CE envelope schema JSON should NOT be set for rawPayload topics")
+}
+
+func TestParsePulsarMetadataRawPayloadInvalidBool(t *testing.T) {
+	m := pubsub.Metadata{}
+	m.Properties = map[string]string{
+		"host":                                "a",
+		"mytopic" + topicAvroSchemaIdentifier: `{"type":"record","name":"T","fields":[{"name":"id","type":"int"}]}`,
+		"mytopic" + topicRawPayloadIdentifier: "yes",
+	}
+
+	_, err := parsePulsarMetadata(m)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid value for")
 }
 
 func TestParsePublishMetadataAvroRawPayloadTopic(t *testing.T) {
@@ -1339,7 +1352,7 @@ func TestParsePublishMetadataAvroRawPayloadTopic(t *testing.T) {
 		assert.NotNil(t, msg.Value)
 	})
 
-	t.Run("non-raw also succeeds with inner schema when no CE", func(t *testing.T) {
+	t.Run("rawPayload false succeeds with inner schema when no CE", func(t *testing.T) {
 		req := &pubsub.PublishRequest{
 			Data: []byte(`{"orderId": "order-1", "amount": 99.99}`),
 		}
