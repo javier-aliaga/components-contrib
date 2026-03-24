@@ -1246,15 +1246,14 @@ func TestParsePublishMetadataAvroCloudEventsEnvelope(t *testing.T) {
 		assert.Contains(t, err.Error(), "avro schema validation failed")
 	})
 
-	t.Run("rawPayload uses inner codec on CE schema topic", func(t *testing.T) {
+	t.Run("rawPayload rejected on CE schema topic", func(t *testing.T) {
 		req := &pubsub.PublishRequest{
 			Data:     []byte(`{"orderId": "order-1", "amount": 99.99}`),
 			Metadata: map[string]string{"rawPayload": "true"},
 		}
-		msg, err := parsePublishMetadata(req, sm)
-		require.NoError(t, err)
-		assert.NotNil(t, msg)
-		assert.NotNil(t, msg.Value)
+		_, err := parsePublishMetadata(req, sm)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "rawPayload=true is not compatible")
 	})
 }
 
