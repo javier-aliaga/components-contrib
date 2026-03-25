@@ -26,6 +26,7 @@ import (
 	"github.com/dapr/components-contrib/conversation"
 	"github.com/dapr/components-contrib/conversation/anthropic"
 	"github.com/dapr/components-contrib/conversation/aws/bedrock"
+	"github.com/dapr/components-contrib/conversation/claudecode"
 	"github.com/dapr/components-contrib/conversation/echo"
 	"github.com/dapr/components-contrib/conversation/googleai"
 	"github.com/dapr/components-contrib/conversation/huggingface"
@@ -114,12 +115,19 @@ func shouldSkipComponent(t *testing.T, componentName string) bool {
 			t.Skipf("Skipping AWS Bedrock conformance test: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables not set")
 			return true
 		}
+	case "claudecode":
+		if os.Getenv("CLAUDECODE_ENABLED") == "" {
+			t.Skipf("Skipping Claude Code conformance test: requires local claude CLI (set CLAUDECODE_ENABLED=1 to enable)")
+			return true
+		}
 	}
 	return false
 }
 
 func loadConversationComponent(name string) conversation.Conversation {
 	switch name {
+	case "claudecode":
+		return claudecode.NewClaudeCode(testLogger)
 	case "echo":
 		return echo.NewEcho(testLogger)
 	case "openai.openai", "openai.azure":

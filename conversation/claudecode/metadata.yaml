@@ -1,0 +1,44 @@
+# yaml-language-server: $schema=../../../component-metadata-schema.json
+schemaVersion: v1
+type: conversation
+name: claudecode
+version: v1
+status: alpha
+title: "Claude Code"
+urls:
+  - title: Reference
+    url: https://docs.dapr.io/reference/components-reference/supported-conversation/claudecode/
+description: |
+  Conversation component that uses the Claude Code CLI as a subprocess.
+  Provides agentic capabilities including tool use, multi-turn sessions,
+  and full Claude Code features via the --output-format stream-json protocol.
+metadata:
+  - name: model
+    required: false
+    description: |
+      The Claude model to use. Configurable via CLAUDECODE_MODEL environment variable.
+    type: string
+    example: 'claude-sonnet-4-20250514'
+    default: 'claude-sonnet-4-20250514'
+  - name: allowedTools
+    required: false
+    description: |
+      Comma-separated list of tools to pre-approve for the Claude Code subprocess,
+      avoiding interactive permission prompts. Example: "Read,Edit,Bash".
+    type: string
+    example: 'Read,Edit,Bash'
+    default: ''
+  - name: maxTurns
+    required: false
+    description: |
+      Maximum number of agentic turns the subprocess can take. 0 means no limit.
+    type: number
+    example: '10'
+    default: '0'
+  - name: cliPath
+    required: false
+    description: |
+      Path to the claude CLI binary. Defaults to "claude" (found via PATH).
+    type: string
+    example: '/usr/local/bin/claude'
+    default: 'claude'

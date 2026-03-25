@@ -1,0 +1,14 @@
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: claudecode
+spec:
+  type: conversation.claudecode
+  version: v1
+  metadata:
+    - name: model
+      value: ""   # use default for provider or customize via environment variable as defined in conversation/models.go
+    - name: allowedTools
+      value: "Read,Bash,Grep,Glob"
+    - name: maxTurns
+      value: "1"
