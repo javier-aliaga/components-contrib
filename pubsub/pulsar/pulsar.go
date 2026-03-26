@@ -461,6 +461,9 @@ func parsePublishMetadata(req *pubsub.PublishRequest, schema schemaMetadata) (
 		if schema.ceCodec == nil {
 			codec = schema.codec
 		}
+		if codec == nil {
+			return nil, errors.New("no JSON schema codec available: schema metadata is missing a compiled codec for this topic")
+		}
 		native, _, nativeErr := codec.NativeFromTextual(req.Data)
 		if nativeErr != nil {
 			return nil, fmt.Errorf("json schema validation failed: %w", nativeErr)
@@ -485,7 +488,11 @@ func parsePublishMetadata(req *pubsub.PublishRequest, schema schemaMetadata) (
 		data := req.Data
 		if schema.ceCodec == nil {
 			codec = schema.codec
-		} else {
+		}
+		if codec == nil {
+			return nil, errors.New("no Avro schema codec available: schema metadata is missing a compiled codec for this topic")
+		}
+		if schema.ceCodec != nil {
 			// Dapr's CE envelope encodes the "data" field as a JSON string;
 			// the Avro codec expects a nested record. Normalize before encoding.
 			normalized, normErr := normalizeCloudEventForAvro(req.Data)
