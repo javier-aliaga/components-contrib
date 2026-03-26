@@ -539,6 +539,8 @@ func parsePublishMetadata(req *pubsub.PublishRequest, schema schemaMetadata) (
 		}
 
 		msg.Value = native
+	default:
+		return nil, fmt.Errorf("unsupported schema protocol %q: only json, avro, and proto are supported", schema.protocol)
 	}
 
 	for name, value := range req.Metadata {
