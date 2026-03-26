@@ -69,7 +69,10 @@ const (
 	topicJSONSchemaIdentifier  = ".jsonschema"
 	topicAvroSchemaIdentifier  = ".avroschema"
 	topicProtoSchemaIdentifier = ".protoschema"
-	topicRawSchemaIdentifier   = ".rawschema"
+	// topicRawSchemaIdentifier opts a topic out of CloudEvents envelope wrapping.
+	// Applies to both Avro and JSON schema topics. When rawschema=true, publishers
+	// must set per-message rawPayload=true and send the inner domain event directly.
+	topicRawSchemaIdentifier = ".rawschema"
 
 	// defaultBatchingMaxPublishDelay init default for maximum delay to batch messages.
 	defaultBatchingMaxPublishDelay = 10 * time.Millisecond
@@ -419,8 +422,8 @@ func (p *Pulsar) Publish(ctx context.Context, req *pubsub.PublishRequest) error 
 }
 
 // getRegistrationSchema returns the Pulsar schema to register with the broker.
-// For Avro topics with a CE envelope, it returns the CE envelope schema;
-// otherwise it falls back to the inner schema.
+// For Avro or JSON schema topics with a CE envelope, it returns the CE envelope
+// schema (Avro or JSON respectively); otherwise it falls back to the inner schema.
 func getRegistrationSchema(sm schemaMetadata) pulsar.Schema {
 	if sm.ceValue != "" {
 		switch sm.protocol {
