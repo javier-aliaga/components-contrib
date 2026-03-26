@@ -57,7 +57,7 @@ func newAvroSchemaMetadataWithCE(t *testing.T, avroSchemaJSON string) schemaMeta
 	codec, err := goavro.NewCodecForStandardJSONFull(avroSchemaJSON)
 	require.NoError(t, err, "failed to compile test avro schema")
 
-	ceSchemaJSON, err := wrapInCloudEventsAvroSchema(avroSchemaJSON)
+	ceSchemaJSON, err := wrapInCloudEventsSchema(avroSchemaJSON)
 	require.NoError(t, err, "failed to generate CE envelope schema")
 	ceCodec, err := goavro.NewCodecForStandardJSONFull(ceSchemaJSON)
 	require.NoError(t, err, "failed to compile CE envelope schema")
@@ -1256,7 +1256,7 @@ func TestParsePublishMetadataJSONSchemaCloudEventsEnvelope(t *testing.T) {
 
 	codec, err := goavro.NewCodecForStandardJSONFull(jsonSchemaJSON)
 	require.NoError(t, err)
-	ceSchemaJSON, err := wrapInCloudEventsAvroSchema(jsonSchemaJSON)
+	ceSchemaJSON, err := wrapInCloudEventsSchema(jsonSchemaJSON)
 	require.NoError(t, err)
 	ceCodec, err := goavro.NewCodecForStandardJSONFull(ceSchemaJSON)
 	require.NoError(t, err)
@@ -1444,7 +1444,7 @@ func TestParsePublishMetadataAvroCloudEventsEnvelope(t *testing.T) {
 	t.Run("CE envelope with stringified data", func(t *testing.T) {
 		// Dapr's runtime serialises the data field as a JSON string, e.g.
 		// "data": "{\"orderId\":\"order-1\",\"amount\":99.99}"
-		// normalizeCloudEventForAvro must parse it before Avro encoding.
+		// normalizeCloudEventData must parse it before Avro encoding.
 		cePayload := `{
 			"id": "abc-123",
 			"source": "Dapr",
@@ -2471,7 +2471,7 @@ func TestHandleMessageAvroCEEnvelopeDecodeRoundTrip(t *testing.T) {
 	innerCodec, err := goavro.NewCodecForStandardJSONFull(innerSchema)
 	require.NoError(t, err)
 
-	ceSchemaJSON, err := wrapInCloudEventsAvroSchema(innerSchema)
+	ceSchemaJSON, err := wrapInCloudEventsSchema(innerSchema)
 	require.NoError(t, err)
 	ceCodec, err := goavro.NewCodecForStandardJSONFull(ceSchemaJSON)
 	require.NoError(t, err)

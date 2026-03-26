@@ -15,6 +15,7 @@ package pulsar
 
 import (
 	"context"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -224,7 +225,7 @@ func parsePulsarMetadata(meta pubsub.Metadata) (*pulsarMetadata, error) {
 			// Only wrap in CloudEvents envelope when the topic is not
 			// configured with rawSchema=true.
 			if !sm.rawSchema {
-				ceSchemaJSON, ceErr := wrapInCloudEventsAvroSchema(v)
+				ceSchemaJSON, ceErr := wrapInCloudEventsSchema(v)
 				if ceErr != nil {
 					return nil, fmt.Errorf("failed to generate CloudEvents envelope schema for topic %q: %w", topic, ceErr)
 				}
@@ -251,7 +252,7 @@ func parsePulsarMetadata(meta pubsub.Metadata) (*pulsarMetadata, error) {
 			// Only wrap in CloudEvents envelope when the topic is not
 			// configured with rawSchema=true.
 			if !sm.rawSchema {
-				ceSchemaJSON, ceErr := wrapInCloudEventsAvroSchema(v)
+				ceSchemaJSON, ceErr := wrapInCloudEventsSchema(v)
 				if ceErr != nil {
 					return nil, fmt.Errorf("failed to generate CloudEvents envelope schema for topic %q: %w", topic, ceErr)
 				}
@@ -481,18 +482,26 @@ func parsePublishMetadata(req *pubsub.PublishRequest, schema schemaMetadata) (
 			// Dapr's CE envelope can encode the "data" field as a JSON string;
 			// the JSON schema CloudEvents codec expects a nested object. Normalize
 			// before validation, reusing the Avro normalization helper.
-			normalized, normErr := normalizeCloudEventForAvro(data)
+			normalized, normErr := normalizeCloudEventData(data)
 			if normErr != nil {
 				return nil, fmt.Errorf("failed to normalize CloudEvents data for JSON schema: %w", normErr)
 			}
 			data = normalized
 		}
-		native, _, nativeErr := codec.NativeFromTextual(data)
+		// Validate the payload against the schema using goavro, but do NOT use
+		// the goavro "native" value as msg.Value. goavro wraps union types as
+		// map[string]any{"string": "..."} which changes the JSON wire format.
+		// Instead, use a standard json.Unmarshal result for the Pulsar JSON encoder.
+		_, _, nativeErr := codec.NativeFromTextual(data)
 		if nativeErr != nil {
 			return nil, fmt.Errorf("json schema validation failed: %w", nativeErr)
 		}
 
-		msg.Value = native
+		var obj interface{}
+		if err = json.Unmarshal(data, &obj); err != nil {
+			return nil, fmt.Errorf("json schema unmarshal after validation: %w", err)
+		}
+		msg.Value = obj
 	case avroProtocol:
 		// Select the appropriate codec based on whether the payload is raw or
 		// wrapped in a CloudEvents envelope. When rawPayload=true, the data is the
@@ -518,7 +527,7 @@ func parsePublishMetadata(req *pubsub.PublishRequest, schema schemaMetadata) (
 		if schema.ceCodec != nil {
 			// Dapr's CE envelope encodes the "data" field as a JSON string;
 			// the Avro codec expects a nested record. Normalize before encoding.
-			normalized, normErr := normalizeCloudEventForAvro(req.Data)
+			normalized, normErr := normalizeCloudEventData(req.Data)
 			if normErr != nil {
 				return nil, fmt.Errorf("failed to normalize CloudEvents data for Avro: %w", normErr)
 			}

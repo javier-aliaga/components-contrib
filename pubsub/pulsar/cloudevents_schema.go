@@ -41,14 +41,18 @@ type avroNullableField struct {
 	Default any    `json:"default"` // nil any marshals to JSON null
 }
 
-// wrapInCloudEventsAvroSchema takes a user-provided inner Avro schema JSON string
-// and returns a CloudEvents envelope Avro schema with the inner schema embedded
-// as the "data" field type. This ensures the Pulsar Schema Registry entry matches
-// the actual wire format when Dapr wraps payloads in CloudEvents envelopes.
+// wrapInCloudEventsSchema takes a user-provided inner schema JSON string and
+// returns a CloudEvents envelope schema with the inner schema embedded as the
+// "data" field type. This ensures the Pulsar Schema Registry entry matches the
+// actual wire format when Dapr wraps payloads in CloudEvents envelopes.
+//
+// Used for both Avro and JSON schema topics — the envelope structure is the same
+// regardless of the schema type because both use the Avro-compatible JSON
+// representation internally (goavro codec).
 //
 // The generated schema follows the CloudEvents Avro format specification:
 // https://github.com/cloudevents/spec/blob/main/cloudevents/bindings/avro-format.md
-func wrapInCloudEventsAvroSchema(innerSchemaJSON string) (string, error) {
+func wrapInCloudEventsSchema(innerSchemaJSON string) (string, error) {
 	var innerSchema interface{}
 	if err := json.Unmarshal([]byte(innerSchemaJSON), &innerSchema); err != nil {
 		return "", fmt.Errorf("failed to parse inner schema: %w", err)
@@ -87,15 +91,18 @@ func wrapInCloudEventsAvroSchema(innerSchemaJSON string) (string, error) {
 	return string(result), nil
 }
 
-// normalizeCloudEventForAvro takes a Dapr-produced CE envelope JSON and parses
+// normalizeCloudEventData takes a Dapr-produced CE envelope JSON and parses
 // the stringified "data" field into a proper JSON object so goavro can encode it
-// against the inner Avro record type.
+// against the inner record type.
+//
+// Used for both Avro and JSON schema topics — Dapr may stringify the data field
+// in either case, and the goavro codec expects a nested object.
 //
 // Dapr produces: {"data": "{\"testId\":0}", ...}
 // goavro expects: {"data": {"testId":0}, ...}
 //
 // Uses json.RawMessage to avoid parsing/re-serialising the other ~15 CE fields.
-func normalizeCloudEventForAvro(ceJSON []byte) ([]byte, error) {
+func normalizeCloudEventData(ceJSON []byte) ([]byte, error) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(ceJSON, &raw); err != nil {
 		return nil, fmt.Errorf("failed to parse CloudEvents envelope: %w", err)

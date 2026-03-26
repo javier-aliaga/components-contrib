@@ -34,7 +34,7 @@ func TestWrapInCloudEventsAvroSchema(t *testing.T) {
 	}`
 
 	t.Run("generates valid Avro schema", func(t *testing.T) {
-		ceSchema, err := wrapInCloudEventsAvroSchema(innerSchema)
+		ceSchema, err := wrapInCloudEventsSchema(innerSchema)
 		require.NoError(t, err)
 
 		// Must compile as a valid Avro schema
@@ -44,7 +44,7 @@ func TestWrapInCloudEventsAvroSchema(t *testing.T) {
 	})
 
 	t.Run("contains all CloudEvents required fields", func(t *testing.T) {
-		ceSchema, err := wrapInCloudEventsAvroSchema(innerSchema)
+		ceSchema, err := wrapInCloudEventsSchema(innerSchema)
 		require.NoError(t, err)
 
 		var schema map[string]interface{}
@@ -80,7 +80,7 @@ func TestWrapInCloudEventsAvroSchema(t *testing.T) {
 	})
 
 	t.Run("validates a full CloudEvents envelope", func(t *testing.T) {
-		ceSchema, err := wrapInCloudEventsAvroSchema(innerSchema)
+		ceSchema, err := wrapInCloudEventsSchema(innerSchema)
 		require.NoError(t, err)
 
 		codec, err := goavro.NewCodecForStandardJSONFull(ceSchema)
@@ -111,7 +111,7 @@ func TestWrapInCloudEventsAvroSchema(t *testing.T) {
 	})
 
 	t.Run("rejects envelope missing required CE field", func(t *testing.T) {
-		ceSchema, err := wrapInCloudEventsAvroSchema(innerSchema)
+		ceSchema, err := wrapInCloudEventsSchema(innerSchema)
 		require.NoError(t, err)
 
 		codec, err := goavro.NewCodecForStandardJSONFull(ceSchema)
@@ -140,7 +140,7 @@ func TestWrapInCloudEventsAvroSchema(t *testing.T) {
 	})
 
 	t.Run("validates envelope with null data", func(t *testing.T) {
-		ceSchema, err := wrapInCloudEventsAvroSchema(innerSchema)
+		ceSchema, err := wrapInCloudEventsSchema(innerSchema)
 		require.NoError(t, err)
 
 		codec, err := goavro.NewCodecForStandardJSONFull(ceSchema)
@@ -188,7 +188,7 @@ func TestWrapInCloudEventsAvroSchema_NestedRecord(t *testing.T) {
 		]
 	}`
 
-	ceSchema, err := wrapInCloudEventsAvroSchema(innerSchema)
+	ceSchema, err := wrapInCloudEventsSchema(innerSchema)
 	require.NoError(t, err)
 
 	codec, err := goavro.NewCodecForStandardJSONFull(ceSchema)
@@ -224,7 +224,7 @@ func TestWrapInCloudEventsAvroSchema_Expiration(t *testing.T) {
 		"fields": [{"name": "id", "type": "int"}]
 	}`
 
-	ceSchema, err := wrapInCloudEventsAvroSchema(innerSchema)
+	ceSchema, err := wrapInCloudEventsSchema(innerSchema)
 	require.NoError(t, err)
 
 	codec, err := goavro.NewCodecForStandardJSONFull(ceSchema)
@@ -260,7 +260,7 @@ func TestWrapInCloudEventsAvroSchema_DataBase64(t *testing.T) {
 		"fields": [{"name": "id", "type": "int"}]
 	}`
 
-	ceSchema, err := wrapInCloudEventsAvroSchema(innerSchema)
+	ceSchema, err := wrapInCloudEventsSchema(innerSchema)
 	require.NoError(t, err)
 
 	codec, err := goavro.NewCodecForStandardJSONFull(ceSchema)
@@ -292,13 +292,13 @@ func TestWrapInCloudEventsAvroSchema_DataBase64(t *testing.T) {
 
 func TestWrapInCloudEventsAvroSchema_InvalidInput(t *testing.T) {
 	t.Run("malformed JSON", func(t *testing.T) {
-		_, err := wrapInCloudEventsAvroSchema(`{not valid json}`)
+		_, err := wrapInCloudEventsSchema(`{not valid json}`)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to parse inner schema")
 	})
 
 	t.Run("empty string", func(t *testing.T) {
-		_, err := wrapInCloudEventsAvroSchema(``)
+		_, err := wrapInCloudEventsSchema(``)
 		require.Error(t, err)
 	})
 }
