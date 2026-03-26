@@ -1190,15 +1190,20 @@ func TestParsePublishMetadataJSONSchemaValidation(t *testing.T) {
 	codec, err := goavro.NewCodecForStandardJSONFull(jsonSchemaJSON)
 	require.NoError(t, err)
 
+	// rawSchema=true with only the inner codec matches the production state
+	// produced by parsePulsarMetadata when a topic has both .jsonschema and
+	// .rawschema=true configured. All subtests use rawPayload=true accordingly.
 	sm := schemaMetadata{
-		protocol: jsonProtocol,
-		value:    jsonSchemaJSON,
-		codec:    codec,
+		protocol:  jsonProtocol,
+		value:     jsonSchemaJSON,
+		codec:     codec,
+		rawSchema: true,
 	}
 
 	t.Run("valid payload passes validation", func(t *testing.T) {
 		req := &pubsub.PublishRequest{
-			Data: []byte(`{"name":"Alice","age":30}`),
+			Data:     []byte(`{"name":"Alice","age":30}`),
+			Metadata: map[string]string{"rawPayload": "true"},
 		}
 		msg, err := parsePublishMetadata(req, sm)
 		require.NoError(t, err)
@@ -1207,7 +1212,8 @@ func TestParsePublishMetadataJSONSchemaValidation(t *testing.T) {
 
 	t.Run("invalid payload rejected", func(t *testing.T) {
 		req := &pubsub.PublishRequest{
-			Data: []byte(`{"name":"Alice","age":"not_a_number"}`),
+			Data:     []byte(`{"name":"Alice","age":"not_a_number"}`),
+			Metadata: map[string]string{"rawPayload": "true"},
 		}
 		_, err := parsePublishMetadata(req, sm)
 		require.Error(t, err)
@@ -1216,7 +1222,8 @@ func TestParsePublishMetadataJSONSchemaValidation(t *testing.T) {
 
 	t.Run("missing required field rejected", func(t *testing.T) {
 		req := &pubsub.PublishRequest{
-			Data: []byte(`{"name":"Alice"}`),
+			Data:     []byte(`{"name":"Alice"}`),
+			Metadata: map[string]string{"rawPayload": "true"},
 		}
 		_, err := parsePublishMetadata(req, sm)
 		require.Error(t, err)
@@ -1225,21 +1232,21 @@ func TestParsePublishMetadataJSONSchemaValidation(t *testing.T) {
 
 	t.Run("not valid json rejected", func(t *testing.T) {
 		req := &pubsub.PublishRequest{
-			Data: []byte(`{broken json`),
+			Data:     []byte(`{broken json`),
+			Metadata: map[string]string{"rawPayload": "true"},
 		}
 		_, err := parsePublishMetadata(req, sm)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "json schema validation failed")
 	})
 
-	t.Run("rawPayload rejected without rawSchema", func(t *testing.T) {
+	t.Run("non-raw rejected on rawSchema topic", func(t *testing.T) {
 		req := &pubsub.PublishRequest{
-			Data:     []byte(`{"name":"Alice","age":30}`),
-			Metadata: map[string]string{"rawPayload": "true"},
+			Data: []byte(`{"name":"Alice","age":30}`),
 		}
 		_, err := parsePublishMetadata(req, sm)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "rawPayload=true is not compatible with JSON schema topics")
+		assert.Contains(t, err.Error(), "rawschema=true topics require per-message rawPayload=true")
 	})
 }
 
