@@ -890,7 +890,7 @@ type avroSchemaTest struct {
 	TestName string `json:"testName"`
 }
 
-func subscriberAvroSchemaApplication(appID string, topicName string, messagesWatcher *watcher.Watcher) app.SetupFn {
+func subscriberRawSchemaApplication(appID string, topicName string, messagesWatcher *watcher.Watcher) app.SetupFn {
 	return func(ctx flow.Context, s common.Service) error {
 		return multierr.Combine(
 			s.AddTopicEventHandler(&common.Subscription{
@@ -907,13 +907,13 @@ func subscriberAvroSchemaApplication(appID string, topicName string, messagesWat
 				if err := json.Unmarshal([]byte(dataStr), &obj); err != nil {
 					ctx.Logf("failed to unmarshal Avro schema payload in subscriber (appID=%s, topic=%s, id=%s): %v", appID, e.Topic, e.ID, err)
 					// Non-retryable error so the test fails clearly on bad payloads.
-					return false, fmt.Errorf("subscriberAvroSchemaApplication: unmarshal payload: %w", err)
+					return false, fmt.Errorf("subscriberRawSchemaApplication: unmarshal payload: %w", err)
 				}
 				normalized, err := json.Marshal(obj)
 				if err != nil {
 					ctx.Logf("failed to marshal normalized Avro schema payload in subscriber (appID=%s, topic=%s, id=%s): %v", appID, e.Topic, e.ID, err)
 					// Non-retryable error so the test fails clearly on bad normalization.
-					return false, fmt.Errorf("subscriberAvroSchemaApplication: marshal normalized payload: %w", err)
+					return false, fmt.Errorf("subscriberRawSchemaApplication: marshal normalized payload: %w", err)
 				}
 				messagesWatcher.Observe(string(normalized))
 				ctx.Logf("Message Received appID: %s,pubsub: %s, topic: %s, id: %s, data: %s", appID, e.PubsubName, e.Topic, e.ID, e.Data)
@@ -1132,7 +1132,7 @@ func (p *pulsarSuite) TestPulsarAvroSchemaRaw() {
 
 		// Run subscriberApplication app1
 		Step(app.Run(appID1, fmt.Sprintf(":%d", appPort),
-			subscriberAvroSchemaApplication(appID1, topicAvroRawName, consumerGroup1))).
+			subscriberRawSchemaApplication(appID1, topicAvroRawName, consumerGroup1))).
 		Step(dockercompose.Run(clusterName, p.dockerComposeYAML)).
 		Step("wait", flow.Sleep(10*time.Second)).
 		Step("wait for pulsar readiness", retry.Do(10*time.Second, 30, func(ctx flow.Context) error {
@@ -1250,7 +1250,7 @@ func (p *pulsarSuite) TestPulsarJSONSchemaRaw() {
 
 		// Run subscriberApplication app1
 		Step(app.Run(appID1, fmt.Sprintf(":%d", appPort),
-			subscriberAvroSchemaApplication(appID1, topicJSONRawName, consumerGroup1))).
+			subscriberRawSchemaApplication(appID1, topicJSONRawName, consumerGroup1))).
 		Step(dockercompose.Run(clusterName, p.dockerComposeYAML)).
 		Step("wait", flow.Sleep(10*time.Second)).
 		Step("wait for pulsar readiness", retry.Do(10*time.Second, 30, func(ctx flow.Context) error {

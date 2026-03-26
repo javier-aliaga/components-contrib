@@ -101,7 +101,8 @@ func wrapInCloudEventsSchema(innerSchemaJSON string) (string, error) {
 // Dapr produces: {"data": "{\"testId\":0}", ...}
 // goavro expects: {"data": {"testId":0}, ...}
 //
-// Uses json.RawMessage to avoid parsing/re-serialising the other ~15 CE fields.
+// Uses json.RawMessage to avoid fully parsing the other ~15 CE fields, though
+// the envelope is re-marshaled (which may reorder top-level keys).
 func normalizeCloudEventData(ceJSON []byte) ([]byte, error) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(ceJSON, &raw); err != nil {

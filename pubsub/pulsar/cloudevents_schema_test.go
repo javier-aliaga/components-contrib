@@ -22,7 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestWrapInCloudEventsAvroSchema(t *testing.T) {
+func TestWrapInCloudEventsSchema(t *testing.T) {
 	innerSchema := `{
 		"type": "record",
 		"name": "OrderEvent",
@@ -170,7 +170,7 @@ func TestWrapInCloudEventsAvroSchema(t *testing.T) {
 	})
 }
 
-func TestWrapInCloudEventsAvroSchema_NestedRecord(t *testing.T) {
+func TestWrapInCloudEventsSchema_NestedRecord(t *testing.T) {
 	innerSchema := `{
 		"type": "record",
 		"name": "Enrollment",
@@ -217,7 +217,7 @@ func TestWrapInCloudEventsAvroSchema_NestedRecord(t *testing.T) {
 	assert.NotNil(t, native)
 }
 
-func TestWrapInCloudEventsAvroSchema_Expiration(t *testing.T) {
+func TestWrapInCloudEventsSchema_Expiration(t *testing.T) {
 	innerSchema := `{
 		"type": "record",
 		"name": "Event",
@@ -253,7 +253,7 @@ func TestWrapInCloudEventsAvroSchema_Expiration(t *testing.T) {
 	assert.NotNil(t, native)
 }
 
-func TestWrapInCloudEventsAvroSchema_DataBase64(t *testing.T) {
+func TestWrapInCloudEventsSchema_DataBase64(t *testing.T) {
 	innerSchema := `{
 		"type": "record",
 		"name": "Event",
@@ -290,7 +290,7 @@ func TestWrapInCloudEventsAvroSchema_DataBase64(t *testing.T) {
 	assert.NotNil(t, native)
 }
 
-func TestWrapInCloudEventsAvroSchema_InvalidInput(t *testing.T) {
+func TestWrapInCloudEventsSchema_InvalidInput(t *testing.T) {
 	t.Run("malformed JSON", func(t *testing.T) {
 		_, err := wrapInCloudEventsSchema(`{not valid json}`)
 		require.Error(t, err)
