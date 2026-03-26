@@ -212,21 +212,27 @@ func parsePulsarMetadata(meta pubsub.Metadata) (*pulsarMetadata, error) {
 			if codecErr != nil {
 				return nil, fmt.Errorf("failed to parse json schema for topic %q: %w", topic, codecErr)
 			}
-			ceSchemaJSON, ceErr := wrapInCloudEventsAvroSchema(v)
-			if ceErr != nil {
-				return nil, fmt.Errorf("failed to generate CloudEvents envelope schema for topic %q: %w", topic, ceErr)
+			sm := schemaMetadata{
+				protocol:  jsonProtocol,
+				value:     v,
+				codec:     codec,
+				rawSchema: rawSchemaTopics[topic],
 			}
-			ceCodec, ceCodecErr := goavro.NewCodecForStandardJSONFull(ceSchemaJSON)
-			if ceCodecErr != nil {
-				return nil, fmt.Errorf("failed to parse CloudEvents envelope schema for topic %q: %w", topic, ceCodecErr)
+			// Only wrap in CloudEvents envelope when the topic is not
+			// configured with rawSchema=true.
+			if !sm.rawSchema {
+				ceSchemaJSON, ceErr := wrapInCloudEventsAvroSchema(v)
+				if ceErr != nil {
+					return nil, fmt.Errorf("failed to generate CloudEvents envelope schema for topic %q: %w", topic, ceErr)
+				}
+				ceCodec, ceCodecErr := goavro.NewCodecForStandardJSONFull(ceSchemaJSON)
+				if ceCodecErr != nil {
+					return nil, fmt.Errorf("failed to parse CloudEvents envelope schema for topic %q: %w", topic, ceCodecErr)
+				}
+				sm.ceValue = ceSchemaJSON
+				sm.ceCodec = ceCodec
 			}
-			m.internalTopicSchemas[topic] = schemaMetadata{
-				protocol: jsonProtocol,
-				value:    v,
-				codec:    codec,
-				ceValue:  ceSchemaJSON,
-				ceCodec:  ceCodec,
-			}
+			m.internalTopicSchemas[topic] = sm
 		case strings.HasSuffix(k, topicAvroSchemaIdentifier):
 			topic := k[:len(k)-len(topicAvroSchemaIdentifier)]
 			codec, codecErr := goavro.NewCodecForStandardJSONFull(v)
@@ -454,8 +460,11 @@ func parsePublishMetadata(req *pubsub.PublishRequest, schema schemaMetadata) (
 		if rawErr != nil {
 			return nil, fmt.Errorf("invalid rawPayload metadata: %w", rawErr)
 		}
-		if isRaw && schema.ceCodec != nil {
-			return nil, errors.New("rawPayload=true is not compatible with JSON schema topics using CloudEvents envelope; use a separate topic for raw payloads")
+		if isRaw && !schema.rawSchema {
+			return nil, errors.New("rawPayload=true is not compatible with JSON schema topics using CloudEvents envelope; use a topic configured with rawschema=true")
+		}
+		if !isRaw && schema.rawSchema {
+			return nil, errors.New("rawschema=true topics require per-message rawPayload=true; otherwise Dapr wraps in a CloudEvents envelope that won't match the registered schema")
 		}
 		codec := schema.ceCodec
 		if schema.ceCodec == nil {

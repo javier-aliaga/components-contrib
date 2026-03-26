@@ -1232,14 +1232,14 @@ func TestParsePublishMetadataJSONSchemaValidation(t *testing.T) {
 		assert.Contains(t, err.Error(), "json schema validation failed")
 	})
 
-	t.Run("rawPayload true without CE codec uses inner codec", func(t *testing.T) {
+	t.Run("rawPayload rejected without rawSchema", func(t *testing.T) {
 		req := &pubsub.PublishRequest{
 			Data:     []byte(`{"name":"Alice","age":30}`),
 			Metadata: map[string]string{"rawPayload": "true"},
 		}
-		msg, err := parsePublishMetadata(req, sm)
-		require.NoError(t, err)
-		assert.NotNil(t, msg.Value)
+		_, err := parsePublishMetadata(req, sm)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "rawPayload=true is not compatible with JSON schema topics")
 	})
 }
 
@@ -1302,6 +1302,75 @@ func TestParsePublishMetadataJSONSchemaCloudEventsEnvelope(t *testing.T) {
 		_, err := parsePublishMetadata(req, sm)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "rawPayload=true is not compatible with JSON schema topics")
+	})
+}
+
+func TestParsePulsarMetadataJSONRawSchemaSkipsCE(t *testing.T) {
+	jsonSchemaJSON := `{
+		"type": "record",
+		"name": "TestEvent",
+		"fields": [
+			{"name": "id", "type": "int"}
+		]
+	}`
+
+	m := pubsub.Metadata{}
+	m.Properties = map[string]string{
+		"host":                                "a",
+		"mytopic" + topicJSONSchemaIdentifier: jsonSchemaJSON,
+		"mytopic" + topicRawSchemaIdentifier:  "true",
+	}
+
+	meta, err := parsePulsarMetadata(m)
+	require.NoError(t, err)
+
+	sm, ok := meta.internalTopicSchemas["mytopic"]
+	require.True(t, ok)
+	assert.NotNil(t, sm.codec, "inner codec should be compiled")
+	assert.Nil(t, sm.ceCodec, "CE envelope codec should NOT be set for rawSchema topics")
+	assert.Empty(t, sm.ceValue, "CE envelope schema JSON should NOT be set for rawSchema topics")
+	assert.True(t, sm.rawSchema, "rawSchema flag should be set")
+}
+
+func TestParsePublishMetadataJSONRawSchemaTopic(t *testing.T) {
+	jsonSchemaJSON := `{
+		"type": "record",
+		"name": "OrderEvent",
+		"namespace": "com.example",
+		"fields": [
+			{"name": "orderId", "type": "string"},
+			{"name": "amount", "type": "double"}
+		]
+	}`
+
+	// Build schema metadata without CE wrapping (simulates rawSchema=true topic).
+	codec, err := goavro.NewCodecForStandardJSONFull(jsonSchemaJSON)
+	require.NoError(t, err)
+	sm := schemaMetadata{
+		protocol:  jsonProtocol,
+		value:     jsonSchemaJSON,
+		codec:     codec,
+		rawSchema: true,
+	}
+
+	t.Run("rawPayload succeeds with inner schema", func(t *testing.T) {
+		req := &pubsub.PublishRequest{
+			Data:     []byte(`{"orderId": "order-1", "amount": 99.99}`),
+			Metadata: map[string]string{"rawPayload": "true"},
+		}
+		msg, err := parsePublishMetadata(req, sm)
+		require.NoError(t, err)
+		assert.NotNil(t, msg)
+		assert.NotNil(t, msg.Value)
+	})
+
+	t.Run("non-raw rejected on rawschema topic", func(t *testing.T) {
+		req := &pubsub.PublishRequest{
+			Data: []byte(`{"orderId": "order-1", "amount": 99.99}`),
+		}
+		_, err := parsePublishMetadata(req, sm)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "rawschema=true topics require per-message rawPayload=true")
 	})
 }
 
