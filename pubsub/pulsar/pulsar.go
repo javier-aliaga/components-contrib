@@ -467,13 +467,24 @@ func parsePublishMetadata(req *pubsub.PublishRequest, schema schemaMetadata) (
 			return nil, errors.New("rawschema=true topics require per-message rawPayload=true; otherwise Dapr wraps in a CloudEvents envelope that won't match the registered schema")
 		}
 		codec := schema.ceCodec
+		data := req.Data
 		if schema.ceCodec == nil {
 			codec = schema.codec
 		}
 		if codec == nil {
 			return nil, errors.New("no JSON schema codec available: schema metadata is missing a compiled codec for this topic")
 		}
-		native, _, nativeErr := codec.NativeFromTextual(req.Data)
+		if schema.ceCodec != nil {
+			// Dapr's CE envelope can encode the "data" field as a JSON string;
+			// the JSON schema CloudEvents codec expects a nested object. Normalize
+			// before validation, reusing the Avro normalization helper.
+			normalized, normErr := normalizeCloudEventForAvro(data)
+			if normErr != nil {
+				return nil, fmt.Errorf("failed to normalize CloudEvents data for JSON schema: %w", normErr)
+			}
+			data = normalized
+		}
+		native, _, nativeErr := codec.NativeFromTextual(data)
 		if nativeErr != nil {
 			return nil, fmt.Errorf("json schema validation failed: %w", nativeErr)
 		}

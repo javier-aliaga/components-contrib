@@ -1303,6 +1303,33 @@ func TestParsePublishMetadataJSONSchemaCloudEventsEnvelope(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "rawPayload=true is not compatible with JSON schema topics")
 	})
+
+	t.Run("CE envelope with stringified data is normalized", func(t *testing.T) {
+		// Dapr can produce CE envelopes where "data" is a JSON string rather
+		// than a nested object. The JSON schema path must normalize it.
+		req := &pubsub.PublishRequest{
+			Data: []byte(`{
+				"id": "evt-2",
+				"source": "/test",
+				"specversion": "1.0",
+				"type": "com.example.order",
+				"datacontenttype": "application/json",
+				"subject": null,
+				"time": null,
+				"topic": null,
+				"pubsubname": null,
+				"traceid": null,
+				"traceparent": null,
+				"tracestate": null,
+				"expiration": null,
+				"data": "{\"orderId\": \"456\", \"amount\": 19.99}",
+				"data_base64": null
+			}`),
+		}
+		msg, err := parsePublishMetadata(req, sm)
+		require.NoError(t, err)
+		assert.NotNil(t, msg.Value)
+	})
 }
 
 func TestParsePulsarMetadataJSONRawSchemaSkipsCE(t *testing.T) {
