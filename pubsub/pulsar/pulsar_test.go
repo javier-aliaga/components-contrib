@@ -35,9 +35,10 @@ import (
 )
 
 // newAvroSchemaMetadata creates a schemaMetadata with only the inner goavro codec
-// (no CE envelope). This is equivalent to a rawschema=true topic. Used by the
-// Avro type-validation tests that predate CE support and test schema validation
-// logic in isolation with inner-schema payloads.
+// (no CE envelope, rawSchema=false). This does NOT match any production state
+// exactly — it bypasses both CE envelope validation and rawSchema enforcement.
+// Used by legacy Avro type-validation tests that predate CE support and test
+// schema validation logic in isolation with inner-schema payloads.
 func newAvroSchemaMetadata(t *testing.T, avroSchemaJSON string) schemaMetadata {
 	t.Helper()
 	codec, err := goavro.NewCodecForStandardJSONFull(avroSchemaJSON)

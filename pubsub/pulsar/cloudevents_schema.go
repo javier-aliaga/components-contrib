@@ -18,10 +18,11 @@ import (
 	"fmt"
 )
 
-// Avro schema structs with deterministic JSON field ordering.
-// Using structs instead of maps guarantees consistent json.Marshal output
-// across process restarts, preventing spurious schema version bumps in the
-// Pulsar Schema Registry (which hashes raw schema bytes for versioning).
+// CloudEvents envelope schema structs with deterministic JSON field ordering.
+// Used for both Avro and JSON schema topics. Using structs instead of maps
+// guarantees consistent json.Marshal output across process restarts, preventing
+// spurious schema version bumps in the Pulsar Schema Registry (which hashes
+// raw schema bytes for versioning).
 
 type avroRecordSchema struct {
 	Type      string        `json:"type"`

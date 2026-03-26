@@ -905,13 +905,13 @@ func subscriberRawSchemaApplication(appID string, topicName string, messagesWatc
 				dataStr := fmt.Sprintf("%s", e.Data)
 				var obj avroSchemaTest
 				if err := json.Unmarshal([]byte(dataStr), &obj); err != nil {
-					ctx.Logf("failed to unmarshal Avro schema payload in subscriber (appID=%s, topic=%s, id=%s): %v", appID, e.Topic, e.ID, err)
+					ctx.Logf("failed to unmarshal raw schema payload in subscriber (appID=%s, topic=%s, id=%s): %v", appID, e.Topic, e.ID, err)
 					// Non-retryable error so the test fails clearly on bad payloads.
 					return false, fmt.Errorf("subscriberRawSchemaApplication: unmarshal payload: %w", err)
 				}
 				normalized, err := json.Marshal(obj)
 				if err != nil {
-					ctx.Logf("failed to marshal normalized Avro schema payload in subscriber (appID=%s, topic=%s, id=%s): %v", appID, e.Topic, e.ID, err)
+					ctx.Logf("failed to marshal normalized raw schema payload in subscriber (appID=%s, topic=%s, id=%s): %v", appID, e.Topic, e.ID, err)
 					// Non-retryable error so the test fails clearly on bad normalization.
 					return false, fmt.Errorf("subscriberRawSchemaApplication: marshal normalized payload: %w", err)
 				}

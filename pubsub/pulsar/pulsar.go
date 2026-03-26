@@ -450,7 +450,11 @@ func getPulsarSchema(metadata schemaMetadata) pulsar.Schema {
 	}
 }
 
-// parsePublishMetadata parse publish metadata.
+// parsePublishMetadata constructs a ProducerMessage from the publish request.
+// For JSON and Avro schema topics it validates the payload against the registered
+// schema (including CE envelope normalization when applicable), enforces the
+// rawPayload/rawSchema contract, and maps partition keys, delivery timing, and
+// custom properties onto the message.
 func parsePublishMetadata(req *pubsub.PublishRequest, schema schemaMetadata) (
 	msg *pulsar.ProducerMessage, err error,
 ) {
