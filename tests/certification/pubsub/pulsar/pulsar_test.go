@@ -1202,7 +1202,6 @@ func (p *pulsarSuite) TestPulsarJSONSchema() {
 		Step(app.Run(appID1, fmt.Sprintf(":%d", appPort),
 			subscriberSchemaApplication(appID1, topicJSONCEName, consumerGroup1))).
 		Step(dockercompose.Run(clusterName, p.dockerComposeYAML)).
-		Step("wait", flow.Sleep(10*time.Second)).
 		Step("wait for pulsar readiness", retry.Do(10*time.Second, 30, func(ctx flow.Context) error {
 			client, err := p.client(t)
 			if err != nil {
@@ -1252,7 +1251,6 @@ func (p *pulsarSuite) TestPulsarJSONSchemaRaw() {
 		Step(app.Run(appID1, fmt.Sprintf(":%d", appPort),
 			subscriberRawSchemaApplication(appID1, topicJSONRawName, consumerGroup1))).
 		Step(dockercompose.Run(clusterName, p.dockerComposeYAML)).
-		Step("wait", flow.Sleep(10*time.Second)).
 		Step("wait for pulsar readiness", retry.Do(10*time.Second, 30, func(ctx flow.Context) error {
 			client, err := p.client(t)
 			if err != nil {

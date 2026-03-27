@@ -24,19 +24,19 @@ import (
 // spurious schema version bumps in the Pulsar Schema Registry (which hashes
 // raw schema bytes for versioning).
 
-type avroRecordSchema struct {
+type ceRecordSchema struct {
 	Type      string        `json:"type"`
 	Name      string        `json:"name"`
 	Namespace string        `json:"namespace"`
 	Fields    []interface{} `json:"fields"`
 }
 
-type avroRequiredField struct {
+type ceRequiredField struct {
 	Name string `json:"name"`
 	Type string `json:"type"`
 }
 
-type avroNullableField struct {
+type ceNullableField struct {
 	Name    string `json:"name"`
 	Type    [2]any `json:"type"`
 	Default any    `json:"default"` // nil any marshals to JSON null
@@ -61,26 +61,26 @@ func wrapInCloudEventsSchema(innerSchemaJSON string) (string, error) {
 
 	nullStr := [2]any{"null", "string"}
 
-	envelope := avroRecordSchema{
+	envelope := ceRecordSchema{
 		Type:      "record",
 		Name:      "CloudEvent",
 		Namespace: "io.cloudevents",
 		Fields: []interface{}{
-			avroRequiredField{Name: "id", Type: "string"},
-			avroRequiredField{Name: "source", Type: "string"},
-			avroRequiredField{Name: "specversion", Type: "string"},
-			avroRequiredField{Name: "type", Type: "string"},
-			avroNullableField{Name: "datacontenttype", Type: nullStr},
-			avroNullableField{Name: "subject", Type: nullStr},
-			avroNullableField{Name: "time", Type: nullStr},
-			avroNullableField{Name: "topic", Type: nullStr},
-			avroNullableField{Name: "pubsubname", Type: nullStr},
-			avroNullableField{Name: "traceid", Type: nullStr},
-			avroNullableField{Name: "traceparent", Type: nullStr},
-			avroNullableField{Name: "tracestate", Type: nullStr},
-			avroNullableField{Name: "expiration", Type: nullStr},
-			avroNullableField{Name: "data", Type: [2]any{"null", innerSchema}},
-			avroNullableField{Name: "data_base64", Type: nullStr},
+			ceRequiredField{Name: "id", Type: "string"},
+			ceRequiredField{Name: "source", Type: "string"},
+			ceRequiredField{Name: "specversion", Type: "string"},
+			ceRequiredField{Name: "type", Type: "string"},
+			ceNullableField{Name: "datacontenttype", Type: nullStr},
+			ceNullableField{Name: "subject", Type: nullStr},
+			ceNullableField{Name: "time", Type: nullStr},
+			ceNullableField{Name: "topic", Type: nullStr},
+			ceNullableField{Name: "pubsubname", Type: nullStr},
+			ceNullableField{Name: "traceid", Type: nullStr},
+			ceNullableField{Name: "traceparent", Type: nullStr},
+			ceNullableField{Name: "tracestate", Type: nullStr},
+			ceNullableField{Name: "expiration", Type: nullStr},
+			ceNullableField{Name: "data", Type: [2]any{"null", innerSchema}},
+			ceNullableField{Name: "data_base64", Type: nullStr},
 		},
 	}
 

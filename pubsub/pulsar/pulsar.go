@@ -146,6 +146,37 @@ func NewPulsar(l logger.Logger) pubsub.PubSub {
 	}
 }
 
+// buildSchemaMetadata compiles a goavro codec for the given schema and, when
+// rawSchema is false, wraps it in a CloudEvents envelope schema. Used for both
+// JSON and Avro schema topics — the only difference is the protocol identifier.
+func buildSchemaMetadata(topic, schemaJSON, protocol string, rawSchema bool) (schemaMetadata, error) {
+	codec, codecErr := goavro.NewCodecForStandardJSONFull(schemaJSON)
+	if codecErr != nil {
+		return schemaMetadata{}, fmt.Errorf("failed to parse %s schema for topic %q: %w", protocol, topic, codecErr)
+	}
+	sm := schemaMetadata{
+		protocol:  protocol,
+		value:     schemaJSON,
+		codec:     codec,
+		rawSchema: rawSchema,
+	}
+	// Only wrap in CloudEvents envelope when the topic is not
+	// configured with rawSchema=true.
+	if !sm.rawSchema {
+		ceSchemaJSON, ceErr := wrapInCloudEventsSchema(schemaJSON)
+		if ceErr != nil {
+			return schemaMetadata{}, fmt.Errorf("failed to generate CloudEvents envelope schema for topic %q: %w", topic, ceErr)
+		}
+		ceCodec, ceCodecErr := goavro.NewCodecForStandardJSONFull(ceSchemaJSON)
+		if ceCodecErr != nil {
+			return schemaMetadata{}, fmt.Errorf("failed to parse CloudEvents envelope schema for topic %q: %w", topic, ceCodecErr)
+		}
+		sm.ceValue = ceSchemaJSON
+		sm.ceCodec = ceCodec
+	}
+	return sm, nil
+}
+
 func parsePulsarMetadata(meta pubsub.Metadata) (*pulsarMetadata, error) {
 	m := pulsarMetadata{
 		Persistent:              true,
@@ -212,56 +243,16 @@ func parsePulsarMetadata(meta pubsub.Metadata) (*pulsarMetadata, error) {
 		switch {
 		case strings.HasSuffix(k, topicJSONSchemaIdentifier):
 			topic := k[:len(k)-len(topicJSONSchemaIdentifier)]
-			codec, codecErr := goavro.NewCodecForStandardJSONFull(v)
-			if codecErr != nil {
-				return nil, fmt.Errorf("failed to parse json schema for topic %q: %w", topic, codecErr)
-			}
-			sm := schemaMetadata{
-				protocol:  jsonProtocol,
-				value:     v,
-				codec:     codec,
-				rawSchema: rawSchemaTopics[topic],
-			}
-			// Only wrap in CloudEvents envelope when the topic is not
-			// configured with rawSchema=true.
-			if !sm.rawSchema {
-				ceSchemaJSON, ceErr := wrapInCloudEventsSchema(v)
-				if ceErr != nil {
-					return nil, fmt.Errorf("failed to generate CloudEvents envelope schema for topic %q: %w", topic, ceErr)
-				}
-				ceCodec, ceCodecErr := goavro.NewCodecForStandardJSONFull(ceSchemaJSON)
-				if ceCodecErr != nil {
-					return nil, fmt.Errorf("failed to parse CloudEvents envelope schema for topic %q: %w", topic, ceCodecErr)
-				}
-				sm.ceValue = ceSchemaJSON
-				sm.ceCodec = ceCodec
+			sm, smErr := buildSchemaMetadata(topic, v, jsonProtocol, rawSchemaTopics[topic])
+			if smErr != nil {
+				return nil, smErr
 			}
 			m.internalTopicSchemas[topic] = sm
 		case strings.HasSuffix(k, topicAvroSchemaIdentifier):
 			topic := k[:len(k)-len(topicAvroSchemaIdentifier)]
-			codec, codecErr := goavro.NewCodecForStandardJSONFull(v)
-			if codecErr != nil {
-				return nil, fmt.Errorf("failed to parse avro schema for topic %q: %w", topic, codecErr)
-			}
-			sm := schemaMetadata{
-				protocol:  avroProtocol,
-				value:     v,
-				codec:     codec,
-				rawSchema: rawSchemaTopics[topic],
-			}
-			// Only wrap in CloudEvents envelope when the topic is not
-			// configured with rawSchema=true.
-			if !sm.rawSchema {
-				ceSchemaJSON, ceErr := wrapInCloudEventsSchema(v)
-				if ceErr != nil {
-					return nil, fmt.Errorf("failed to generate CloudEvents envelope schema for topic %q: %w", topic, ceErr)
-				}
-				ceCodec, ceCodecErr := goavro.NewCodecForStandardJSONFull(ceSchemaJSON)
-				if ceCodecErr != nil {
-					return nil, fmt.Errorf("failed to parse CloudEvents envelope schema for topic %q: %w", topic, ceCodecErr)
-				}
-				sm.ceValue = ceSchemaJSON
-				sm.ceCodec = ceCodec
+			sm, smErr := buildSchemaMetadata(topic, v, avroProtocol, rawSchemaTopics[topic])
+			if smErr != nil {
+				return nil, smErr
 			}
 			m.internalTopicSchemas[topic] = sm
 		case strings.HasSuffix(k, topicProtoSchemaIdentifier):

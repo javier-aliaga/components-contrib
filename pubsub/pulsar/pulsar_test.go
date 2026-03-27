@@ -1178,6 +1178,46 @@ func TestParsePublishMetadataAvroSchemaInvalidSchemaDefinition(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to parse avro schema")
 }
 
+func TestBuildSchemaMetadata(t *testing.T) {
+	validSchema := `{"type":"record","name":"E","namespace":"test","fields":[{"name":"id","type":"int"}]}`
+
+	tests := []struct {
+		name      string
+		schema    string
+		protocol  string
+		rawSchema bool
+		wantCE    bool
+		wantErr   bool
+	}{
+		{name: "json with CE wrapping", schema: validSchema, protocol: jsonProtocol, rawSchema: false, wantCE: true},
+		{name: "json raw skips CE", schema: validSchema, protocol: jsonProtocol, rawSchema: true, wantCE: false},
+		{name: "avro with CE wrapping", schema: validSchema, protocol: avroProtocol, rawSchema: false, wantCE: true},
+		{name: "avro raw skips CE", schema: validSchema, protocol: avroProtocol, rawSchema: true, wantCE: false},
+		{name: "invalid schema", schema: `{bad}`, protocol: jsonProtocol, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sm, err := buildSchemaMetadata("test-topic", tt.schema, tt.protocol, tt.rawSchema)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.protocol, sm.protocol)
+			assert.Equal(t, tt.schema, sm.value)
+			assert.Equal(t, tt.rawSchema, sm.rawSchema)
+			assert.NotNil(t, sm.codec)
+			if tt.wantCE {
+				assert.NotNil(t, sm.ceCodec)
+				assert.NotEmpty(t, sm.ceValue)
+			} else {
+				assert.Nil(t, sm.ceCodec)
+				assert.Empty(t, sm.ceValue)
+			}
+		})
+	}
+}
+
 func TestParsePublishMetadataJSONSchemaValidation(t *testing.T) {
 	jsonSchemaJSON := `{
 		"type": "record",
