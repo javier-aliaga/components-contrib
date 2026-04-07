@@ -564,13 +564,13 @@ func (r *rabbitMQ) subscribeForever(ctx context.Context, req pubsub.SubscribeReq
 			}
 
 			err = r.listenMessages(ctx, channel, msgs, req.Topic, handler)
+			// Always cancel the consumer server-side so RabbitMQ can
+			// release the registration. noWait=true avoids blocking if
+			// the channel is already closing.
+			if cancelErr := channel.Cancel(consumerTag, true); cancelErr != nil {
+				r.logger.Debugf("%s failed to cancel consumer %s: %v", logMessagePrefix, consumerTag, cancelErr)
+			}
 			if err != nil {
-				// Best-effort cleanup: cancel the consumer server-side so
-				// RabbitMQ can release the registration. noWait=true avoids
-				// blocking if the channel is already closing.
-				if cancelErr := channel.Cancel(consumerTag, true); cancelErr != nil {
-					r.logger.Debugf("%s failed to cancel consumer %s: %v", logMessagePrefix, consumerTag, cancelErr)
-				}
 				errFuncName = "listenMessages"
 				break
 			}
@@ -583,7 +583,7 @@ func (r *rabbitMQ) subscribeForever(ctx context.Context, req pubsub.SubscribeReq
 			return
 		}
 
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		if err != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
 			// Subscription context was canceled
 			r.logger.Infof("%s subscription for %s has context canceled", logMessagePrefix, queueName)
 			return
