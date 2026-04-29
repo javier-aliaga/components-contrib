@@ -277,6 +277,87 @@ func Test_reloadConsumerGroup(t *testing.T) {
 		assert.Equal(t, int64(1), closeCalled.Load())
 	})
 
+	t.Run("On graceful shutdown PauseAll is called before Close", func(t *testing.T) {
+		var pauseAllCalled atomic.Int64
+		var closeCalled atomic.Int64
+		var pauseAllAt atomic.Int64
+		var closeAt atomic.Int64
+		var seq atomic.Int64
+		waitCh := make(chan struct{})
+		cg := mocks.NewConsumerGroup().
+			WithConsumeFn(func(ctx context.Context, _ []string, _ sarama.ConsumerGroupHandler) error {
+				<-ctx.Done()
+				return nil
+			}).
+			WithPauseAllFn(func() {
+				pauseAllCalled.Add(1)
+				pauseAllAt.Store(seq.Add(1))
+			}).
+			WithCloseFn(func() error {
+				closeCalled.Add(1)
+				closeAt.Store(seq.Add(1))
+				waitCh <- struct{}{}
+				return nil
+			})
+
+		k := &Kafka{
+			logger:               logger.NewLogger("test"),
+			mockConsumerGroup:    cg,
+			consumerCancel:       nil,
+			closeCh:              make(chan struct{}),
+			subscribeTopics:      map[string]SubscriptionHandlerConfig{"foo": {}},
+			consumeRetryInterval: time.Millisecond,
+		}
+		c, err := k.latestClients()
+		require.NoError(t, err)
+		k.clients = c
+
+		ctx, cancel := context.WithCancelCause(t.Context())
+		k.Subscribe(ctx, SubscriptionHandlerConfig{}, "foo")
+
+		cancel(pubsub.ErrGracefulShutdown)
+		<-waitCh
+
+		assert.Equal(t, int64(1), pauseAllCalled.Load(), "PauseAll should be called exactly once on graceful shutdown")
+		assert.Equal(t, int64(1), closeCalled.Load(), "Close should be called exactly once on graceful shutdown")
+		assert.Less(t, pauseAllAt.Load(), closeAt.Load(), "PauseAll should be called before Close")
+	})
+
+	t.Run("Non-graceful shutdown does not call PauseAll", func(t *testing.T) {
+		var pauseAllCalled atomic.Int64
+		var consumeCalled atomic.Int64
+		cg := mocks.NewConsumerGroup().
+			WithConsumeFn(func(ctx context.Context, _ []string, _ sarama.ConsumerGroupHandler) error {
+				consumeCalled.Add(1)
+				<-ctx.Done()
+				return nil
+			}).
+			WithPauseAllFn(func() {
+				pauseAllCalled.Add(1)
+			})
+
+		k := &Kafka{
+			logger:               logger.NewLogger("test"),
+			mockConsumerGroup:    cg,
+			consumerCancel:       nil,
+			closeCh:              make(chan struct{}),
+			subscribeTopics:      map[string]SubscriptionHandlerConfig{"foo": {}},
+			consumeRetryInterval: time.Millisecond,
+		}
+		c, err := k.latestClients()
+		require.NoError(t, err)
+		k.clients = c
+
+		ctx, cancel := context.WithCancelCause(t.Context())
+		k.Subscribe(ctx, SubscriptionHandlerConfig{}, "foo")
+		assert.Eventually(t, func() bool { return consumeCalled.Load() == 1 }, time.Second, time.Millisecond)
+
+		cancel(errors.New("non-graceful cancel"))
+		// Wait for the unsubscribe goroutine to finish.
+		k.wg.Wait()
+		assert.Equal(t, int64(0), pauseAllCalled.Load(), "PauseAll should not be called for non-graceful shutdown")
+	})
+
 	t.Run("Cancel context whit shutdown error closes consumer group with multiple subscriber", func(t *testing.T) {
 		var closeCalled atomic.Int64
 		waitCh := make(chan struct{})
