@@ -428,6 +428,71 @@ func Test_reloadConsumerGroup(t *testing.T) {
 	})
 }
 
+func Test_PauseResume(t *testing.T) {
+	t.Run("Pause forwards to consumerGroup.PauseAll", func(t *testing.T) {
+		var pauseAllCalled atomic.Int64
+		cg := mocks.NewConsumerGroup().WithPauseAllFn(func() {
+			pauseAllCalled.Add(1)
+		})
+		k := &Kafka{
+			logger:            logger.NewLogger("test"),
+			mockConsumerGroup: cg,
+			closeCh:           make(chan struct{}),
+		}
+		c, err := k.latestClients()
+		require.NoError(t, err)
+		k.clients = c
+
+		require.NoError(t, k.Pause(t.Context()))
+		assert.Equal(t, int64(1), pauseAllCalled.Load())
+
+		// Idempotent: calling again should still succeed.
+		require.NoError(t, k.Pause(t.Context()))
+		assert.Equal(t, int64(2), pauseAllCalled.Load())
+	})
+
+	t.Run("Resume forwards to consumerGroup.ResumeAll", func(t *testing.T) {
+		var resumeAllCalled atomic.Int64
+		cg := mocks.NewConsumerGroup().WithResumeAllFn(func() {
+			resumeAllCalled.Add(1)
+		})
+		k := &Kafka{
+			logger:            logger.NewLogger("test"),
+			mockConsumerGroup: cg,
+			closeCh:           make(chan struct{}),
+		}
+		c, err := k.latestClients()
+		require.NoError(t, err)
+		k.clients = c
+
+		require.NoError(t, k.Resume(t.Context()))
+		assert.Equal(t, int64(1), resumeAllCalled.Load())
+
+		// Idempotent: calling again should still succeed.
+		require.NoError(t, k.Resume(t.Context()))
+		assert.Equal(t, int64(2), resumeAllCalled.Load())
+	})
+
+	t.Run("Pause is a no-op when consumerGroup is nil", func(t *testing.T) {
+		k := &Kafka{
+			logger:  logger.NewLogger("test"),
+			closeCh: make(chan struct{}),
+			clients: &clients{}, // consumerGroup is nil
+		}
+		require.NoError(t, k.Pause(t.Context()))
+		require.NoError(t, k.Resume(t.Context()))
+	})
+
+	t.Run("Pause is a no-op when clients is nil", func(t *testing.T) {
+		k := &Kafka{
+			logger:  logger.NewLogger("test"),
+			closeCh: make(chan struct{}),
+		}
+		require.NoError(t, k.Pause(t.Context()))
+		require.NoError(t, k.Resume(t.Context()))
+	})
+}
+
 func Test_Subscribe(t *testing.T) {
 	t.Run("Calling subscribe with no topics should not consume", func(t *testing.T) {
 		var consumeCalled atomic.Int64
