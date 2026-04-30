@@ -358,12 +358,10 @@ func Test_reloadConsumerGroup(t *testing.T) {
 		assert.Equal(t, int64(0), pauseAllCalled.Load(), "PauseAll should not be called for non-graceful shutdown")
 	})
 
-	t.Run("Cancel context whit shutdown error closes consumer group with multiple subscriber", func(t *testing.T) {
+	t.Run("Cancelling one of many subscribers does NOT close the consumer group", func(t *testing.T) {
 		var closeCalled atomic.Int64
-		waitCh := make(chan struct{})
 		cg := mocks.NewConsumerGroup().WithCloseFn(func() error {
 			closeCalled.Add(1)
-			waitCh <- struct{}{}
 			return nil
 		})
 
@@ -372,12 +370,11 @@ func Test_reloadConsumerGroup(t *testing.T) {
 			mockConsumerGroup:    cg,
 			consumerCancel:       nil,
 			closeCh:              make(chan struct{}),
-			subscribeTopics:      map[string]SubscriptionHandlerConfig{"foo": {}},
+			subscribeTopics:      map[string]SubscriptionHandlerConfig{},
 			consumeRetryInterval: time.Millisecond,
 		}
 		c, err := k.latestClients()
 		require.NoError(t, err)
-
 		k.clients = c
 
 		cancelFns := make([]context.CancelCauseFunc, 0, 100)
@@ -386,9 +383,77 @@ func Test_reloadConsumerGroup(t *testing.T) {
 			cancelFns = append(cancelFns, cancel)
 			k.Subscribe(ctx, SubscriptionHandlerConfig{}, fmt.Sprintf("foo%d", i))
 		}
+
+		// Cancel one of the 100 subscribers with the graceful shutdown cause.
+		// The other 99 still hold subscriptions on the same consumer group, so
+		// Close MUST NOT fire — doing so would race with the new consume
+		// goroutine reloadConsumerGroup just started for the remaining topics.
 		cancelFns[0](pubsub.ErrGracefulShutdown)
-		<-waitCh
-		assert.Equal(t, int64(1), closeCalled.Load())
+
+		// Give the unsubscribe goroutine ample time to run.
+		assert.Never(t, func() bool { return closeCalled.Load() > 0 }, time.Second, time.Millisecond*10,
+			"consumer group must not be closed while other subscriptions are still active")
+	})
+
+	t.Run("Cancelling all subscribers with shutdown error closes the consumer group exactly once", func(t *testing.T) {
+		var closeCalled atomic.Int64
+		var consumeErrors atomic.Int64
+		closedFlag := atomic.Bool{}
+
+		cg := mocks.NewConsumerGroup().
+			WithConsumeFn(func(ctx context.Context, _ []string, _ sarama.ConsumerGroupHandler) error {
+				if closedFlag.Load() {
+					// Sarama would return this error if Consume is called on a
+					// closed group. Track it so we can assert no spurious
+					// "consumer group closed" errors leak through during
+					// the unsubscribe cascade.
+					consumeErrors.Add(1)
+					return errors.New("kafka: tried to use a consumer group that was closed")
+				}
+				<-ctx.Done()
+				return nil
+			}).
+			WithCloseFn(func() error {
+				closeCalled.Add(1)
+				closedFlag.Store(true)
+				return nil
+			})
+
+		k := &Kafka{
+			logger:               logger.NewLogger("test"),
+			mockConsumerGroup:    cg,
+			consumerCancel:       nil,
+			closeCh:              make(chan struct{}),
+			subscribeTopics:      map[string]SubscriptionHandlerConfig{},
+			consumeRetryInterval: time.Hour, // make sure retry sleep doesn't kick in during the test
+		}
+		c, err := k.latestClients()
+		require.NoError(t, err)
+		k.clients = c
+
+		const N = 100
+		cancelFns := make([]context.CancelCauseFunc, 0, N)
+		for i := range N {
+			ctx, cancel := context.WithCancelCause(t.Context())
+			cancelFns = append(cancelFns, cancel)
+			k.Subscribe(ctx, SubscriptionHandlerConfig{}, fmt.Sprintf("foo%d", i))
+		}
+
+		// Cancel all subscribers with the graceful-shutdown cause in parallel
+		// to exercise the race where multiple Subscribe goroutines race for
+		// the subscribe lock while siblings still hold subscriptions on the
+		// same shared consumer group.
+		for _, cancel := range cancelFns {
+			cancel(pubsub.ErrGracefulShutdown)
+		}
+
+		// Wait for all Subscribe goroutines to finish.
+		k.wg.Wait()
+
+		assert.Equal(t, int64(1), closeCalled.Load(),
+			"consumer group should be closed exactly once after the last subscription exits")
+		assert.Equal(t, int64(0), consumeErrors.Load(),
+			"no consume goroutine should see the consumer group closed during the unsubscribe cascade")
 	})
 
 	t.Run("Closing subscriptions with no error or no ErrGracefulShutdown does not close consumer group", func(t *testing.T) {

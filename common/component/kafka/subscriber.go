@@ -70,8 +70,14 @@ func (k *Kafka) Subscribe(ctx context.Context, handlerConfig SubscriptionHandler
 
 		k.reloadConsumerGroup()
 
-		if isGraceful && k.clients != nil && k.clients.consumerGroup != nil {
-			k.logger.Debugf("Kafka component is closing. Closing consumer group.")
+		// Only the last subscription to exit closes the consumer group.
+		// Closing while sibling Subscribe goroutines still hold subscriptions
+		// on the same component would race with the new consume goroutine
+		// reloadConsumerGroup just started for the remaining topics, leaving
+		// it to error out with "tried to use a consumer group that was
+		// closed".
+		if isGraceful && len(k.subscribeTopics) == 0 && k.clients != nil && k.clients.consumerGroup != nil {
+			k.logger.Debugf("Last subscription closing; closing consumer group.")
 			if err := k.clients.consumerGroup.Close(); err != nil {
 				k.logger.Errorf("failed to close consumer group: %w", err)
 			}
